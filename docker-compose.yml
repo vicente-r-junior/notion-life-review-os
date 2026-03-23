@@ -10,6 +10,9 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+    networks:
+      - default
+      - evolution-net
     restart: always
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -36,3 +39,9 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+
+networks:
+  default:
+    driver: bridge
+  evolution-net:
+    external: true
