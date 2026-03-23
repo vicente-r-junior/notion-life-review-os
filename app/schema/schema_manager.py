@@ -28,12 +28,12 @@ async def bootstrap_schemas():
 
         try:
             db_info = await mcp_client.call_tool(
-                "retrieve-a-database", {"database_id": database_id}
+                "API-retrieve-a-database", {"database_id": database_id}
             )
             data_source_id = db_info["data_sources"][0]["id"]
 
             schema = await mcp_client.call_tool(
-                "retrieve-a-data-source", {"data_source_id": data_source_id}
+                "API-retrieve-a-data-source", {"data_source_id": data_source_id}
             )
 
             fields = {}
@@ -102,7 +102,7 @@ async def diff_schemas():
 
         try:
             schema = await mcp_client.call_tool(
-                "retrieve-a-data-source", {"data_source_id": data_source_id}
+                "API-retrieve-a-data-source", {"data_source_id": data_source_id}
             )
             current_fields = set(schema.get("properties", {}).keys())
             added = current_fields - cached_fields

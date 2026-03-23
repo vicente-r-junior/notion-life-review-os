@@ -22,14 +22,14 @@ def run_async(coro):
 @tool("Search Notion")
 def search_notion(query: str) -> str:
     """Search across the Notion workspace"""
-    result = run_async(mcp_client.call_tool("notion-search", {"query": query}))
+    result = run_async(mcp_client.call_tool("API-post-search", {"query": query}))
     return str(result)
 
 
 @tool("Fetch Notion Page or Database")
 def fetch_notion(url_or_id: str) -> str:
     """Fetch content from a Notion page or database by URL or ID"""
-    result = run_async(mcp_client.call_tool("notion-fetch", {"id": url_or_id}))
+    result = run_async(mcp_client.call_tool("API-retrieve-a-page", {"page_id": url_or_id}))
     return str(result)
 
 
@@ -39,7 +39,7 @@ def query_data_source(data_source_id: str, filter: str = None) -> str:
     args = {"data_source_id": data_source_id}
     if filter:
         args["filter"] = json.loads(filter)
-    result = run_async(mcp_client.call_tool("query-data-source", args))
+    result = run_async(mcp_client.call_tool("API-query-data-source", args))
     return str(result)
 
 
@@ -47,7 +47,7 @@ def query_data_source(data_source_id: str, filter: str = None) -> str:
 def create_notion_pages(pages: str) -> str:
     """Create one or more Notion pages. pages is a JSON string of page specs."""
     result = run_async(
-        mcp_client.call_tool("notion-create-pages", {"pages": json.loads(pages)})
+        mcp_client.call_tool("API-post-page", json.loads(pages))
     )
     return str(result)
 
@@ -57,8 +57,8 @@ def update_notion_page(page_id: str, properties: str) -> str:
     """Update a Notion page properties. properties is a JSON string."""
     result = run_async(
         mcp_client.call_tool(
-            "notion-update-page",
-            {"id": page_id, "properties": json.loads(properties)},
+            "API-patch-page",
+            {"page_id": page_id, "properties": json.loads(properties)},
         )
     )
     return str(result)
@@ -69,7 +69,7 @@ def update_data_source(data_source_id: str, properties: str) -> str:
     """Add or modify columns in a Notion database. properties is a JSON string."""
     result = run_async(
         mcp_client.call_tool(
-            "update-a-data-source",
+            "API-update-a-data-source",
             {"data_source_id": data_source_id, "properties": json.loads(properties)},
         )
     )
@@ -80,7 +80,7 @@ def update_data_source(data_source_id: str, properties: str) -> str:
 def retrieve_database(database_id: str) -> str:
     """Retrieve a Notion database metadata including data source IDs"""
     result = run_async(
-        mcp_client.call_tool("retrieve-a-database", {"database_id": database_id})
+        mcp_client.call_tool("API-retrieve-a-database", {"database_id": database_id})
     )
     return str(result)
 
@@ -90,7 +90,7 @@ def retrieve_data_source(data_source_id: str) -> str:
     """Retrieve the schema of a Notion data source"""
     result = run_async(
         mcp_client.call_tool(
-            "retrieve-a-data-source", {"data_source_id": data_source_id}
+            "API-retrieve-a-data-source", {"data_source_id": data_source_id}
         )
     )
     return str(result)

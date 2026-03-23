@@ -89,12 +89,12 @@ async def main():
 
         try:
             db_info = await mcp_client.call_tool(
-                "retrieve-a-database", {"database_id": db_id}
+                "API-retrieve-a-database", {"database_id": db_id}
             )
             data_source_id = db_info["data_sources"][0]["id"]
 
             await mcp_client.call_tool(
-                "update-a-data-source",
+                "API-update-a-data-source",
                 {
                     "data_source_id": data_source_id,
                     "properties": config["properties"],
