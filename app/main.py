@@ -50,9 +50,11 @@ app = FastAPI(title="Notion Life Review OS", lifespan=lifespan)
 @app.post("/webhook")
 async def webhook(
     request: Request,
-    x_webhook_secret: str = Header(None, alias="X-Webhook-Secret"),
+    x_webhook_secret: str | None = Header(None, alias="X-Webhook-Secret"),
 ):
-    # Validate webhook secret
+    # Validate webhook secret only when WEBHOOK_SECRET is configured.
+    # If the env var is empty or unset, all requests are accepted — this is
+    # required for Evolution API compatibility (it cannot send custom headers).
     if settings.WEBHOOK_SECRET and x_webhook_secret != settings.WEBHOOK_SECRET:
         raise HTTPException(status_code=401, detail="Invalid webhook secret")
 
