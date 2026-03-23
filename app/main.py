@@ -2,10 +2,9 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request, HTTPException, Header
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse
 
-from app.config import settings
 from app.observability.logger import get_logger, setup_logging
 from app.observability.health import get_health
 from app.whatsapp.handler import handle_webhook
@@ -48,16 +47,7 @@ app = FastAPI(title="Notion Life Review OS", lifespan=lifespan)
 
 
 @app.post("/webhook")
-async def webhook(
-    request: Request,
-    x_webhook_secret: str | None = Header(None, alias="X-Webhook-Secret"),
-):
-    # Validate webhook secret only when WEBHOOK_SECRET is configured.
-    # If the env var is empty or unset, all requests are accepted — this is
-    # required for Evolution API compatibility (it cannot send custom headers).
-    if settings.WEBHOOK_SECRET and x_webhook_secret != settings.WEBHOOK_SECRET:
-        raise HTTPException(status_code=401, detail="Invalid webhook secret")
-
+async def webhook(request: Request):
     try:
         payload = await request.json()
     except Exception:
