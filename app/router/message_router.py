@@ -58,6 +58,7 @@ async def process_log(phone: str, text: str):
             for db in ["daily_logs", "tasks", "projects", "learnings"]
         }
         payload = await run_extractor(text, schemas)
+        logger.info("extraction_result", payload=payload)
 
         confirmation_msg = await run_confirmation(payload)
 

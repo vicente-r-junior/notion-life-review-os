@@ -10,8 +10,6 @@ services:
     depends_on:
       redis:
         condition: service_healthy
-      notion-mcp:
-        condition: service_healthy
     restart: always
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -29,12 +27,6 @@ services:
     ports:
       - "127.0.0.1:3000:3000"
     restart: always
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
 
   redis:
     image: redis:7-alpine
