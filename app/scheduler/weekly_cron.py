@@ -32,6 +32,21 @@ async def run_weekly_report(phone: str = None):
         await send_message(target_phone, "Failed to generate weekly report.")
 
 
+_DAY_ABBREV = {
+    "monday": "mon",
+    "tuesday": "tue",
+    "wednesday": "wed",
+    "thursday": "thu",
+    "friday": "fri",
+    "saturday": "sat",
+    "sunday": "sun",
+}
+
+
+def _to_apscheduler_day(day: str) -> str:
+    return _DAY_ABBREV.get(day.lower(), day.lower())
+
+
 def create_scheduler() -> AsyncIOScheduler:
     tz = ZoneInfo(settings.TIMEZONE)
     scheduler = AsyncIOScheduler(timezone=tz)
@@ -39,7 +54,7 @@ def create_scheduler() -> AsyncIOScheduler:
     scheduler.add_job(
         run_weekly_report,
         "cron",
-        day_of_week=settings.WEEKLY_REPORT_DAY,
+        day_of_week=_to_apscheduler_day(settings.WEEKLY_REPORT_DAY),
         hour=settings.WEEKLY_REPORT_HOUR,
         minute=0,
     )

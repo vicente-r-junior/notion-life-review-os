@@ -45,17 +45,22 @@ class MCPClient:
             return data.get("result")
 
     async def _notify(self, method: str, params: dict = None):
-        payload = {
-            "jsonrpc": "2.0",
-            "method": method,
-            "params": params or {},
-        }
+        payload: dict = {"jsonrpc": "2.0", "method": method}
+        if params is not None:
+            payload["params"] = params
         async with httpx.AsyncClient(timeout=10) as client:
-            await client.post(
+            response = await client.post(
                 f"{self.base_url}/mcp",
                 json=payload,
                 headers=self.headers,
             )
+            # Notifications may return 200, 202, or 204 — all are acceptable.
+            # Raise only on server errors so a bad response doesn't leave the
+            # client silently stuck in an un-initialized state.
+            if response.status_code >= 400:
+                raise Exception(
+                    f"MCP notification '{method}' failed with HTTP {response.status_code}: {response.text}"
+                )
 
     async def initialize(self):
         async with self._lock:
@@ -68,7 +73,9 @@ class MCPClient:
                     "capabilities": {},
                     "clientInfo": {"name": "life-review-os", "version": "1.0.0"},
                 },
+                rpc_id=1,
             )
+            # notifications/initialized is a JSON-RPC notification (no id, no params).
             await self._notify("notifications/initialized")
             self.initialized = True
             logger.info("mcp_initialized", session_id=self.session_id)
