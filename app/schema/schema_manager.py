@@ -30,7 +30,25 @@ async def bootstrap_schemas():
             db_info = await mcp_client.call_tool(
                 "API-retrieve-a-database", {"database_id": database_id}
             )
-            data_source_id = db_info["data_sources"][0]["id"]
+            logger.error("schema_bootstrap_db_info", db=db_name, db_info=db_info)
+
+            # Try known alternative key names for the data source list
+            data_source_id = None
+            if "data_sources" in db_info:
+                data_source_id = db_info["data_sources"][0]["id"]
+            elif "results" in db_info:
+                data_source_id = db_info["results"][0]["id"]
+            elif "data_source_ids" in db_info:
+                data_source_id = db_info["data_source_ids"][0]
+            elif "id" in db_info:
+                data_source_id = db_info["id"]
+            else:
+                logger.error(
+                    "schema_bootstrap_unknown_structure",
+                    db=db_name,
+                    keys=list(db_info.keys()),
+                )
+                continue
 
             schema = await mcp_client.call_tool(
                 "API-retrieve-a-data-source", {"data_source_id": data_source_id}
