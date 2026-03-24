@@ -27,35 +27,14 @@ async def bootstrap_schemas():
             continue
 
         try:
+            data_source_id = database_id
+
             db_info = await mcp_client.call_tool(
                 "API-retrieve-a-database", {"database_id": database_id}
             )
-            logger.error("schema_bootstrap_db_info", db=db_name, db_info=db_info)
-
-            # Try known alternative key names for the data source list
-            data_source_id = None
-            if "data_sources" in db_info:
-                data_source_id = db_info["data_sources"][0]["id"]
-            elif "results" in db_info:
-                data_source_id = db_info["results"][0]["id"]
-            elif "data_source_ids" in db_info:
-                data_source_id = db_info["data_source_ids"][0]
-            elif "id" in db_info:
-                data_source_id = db_info["id"]
-            else:
-                logger.error(
-                    "schema_bootstrap_unknown_structure",
-                    db=db_name,
-                    keys=list(db_info.keys()),
-                )
-                continue
-
-            schema = await mcp_client.call_tool(
-                "API-retrieve-a-data-source", {"data_source_id": data_source_id}
-            )
 
             fields = {}
-            for name, prop in schema.get("properties", {}).items():
+            for name, prop in db_info.get("properties", {}).items():
                 fields[name] = {
                     "type": prop.get("type"),
                     "required": prop.get("type") == "title",
@@ -120,7 +99,7 @@ async def diff_schemas():
 
         try:
             schema = await mcp_client.call_tool(
-                "API-retrieve-a-data-source", {"data_source_id": data_source_id}
+                "API-retrieve-a-database", {"database_id": data_source_id}
             )
             current_fields = set(schema.get("properties", {}).keys())
             added = current_fields - cached_fields
