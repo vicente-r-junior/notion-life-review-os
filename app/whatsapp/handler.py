@@ -14,10 +14,10 @@ from app.audio.transcriber import transcribe
 _openai = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
 
 WELCOME_MSG = (
-    "Welcome to *Life Review OS*!\n\n"
-    "I'll help you capture your daily logs, tasks, and learnings to Notion.\n\n"
-    "Just send me a message about your day and I'll take care of the rest.\n\n"
-    "Type *help* to see all commands."
+    "Hey! Welcome to *Life Review OS* 👋\n\n"
+    "I'm your personal productivity assistant. Just tell me about your day — tasks, projects, how you're feeling — and I'll save everything to Notion for you automatically.\n\n"
+    "No forms, no menus. Just talk to me like you'd message a friend.\n\n"
+    "Type *help* to see what I can do. Let's go! 🚀"
 )
 
 logger = get_logger(__name__)
@@ -99,6 +99,8 @@ async def handle_webhook(payload: dict):
 
     masked = mask_phone(phone)
     logger.info("webhook_received", phone=masked, msg_id=msg_id)
+
+    await send_message(phone, "⏳ Got it!")
 
     # Check if paused
     if redis_client.get(f"paused:{phone}"):
@@ -211,14 +213,14 @@ async def handle_session_reply(phone: str, text: str, session: dict):
         if text.lower() in ("confirm", "yes", "y", "sim"):
             pending = session.get("pending_after_confirm")
             redis_client.delete(f"session:{phone}")
-            await send_message(phone, "Saving to Notion...")
+            await send_message(phone, "Saving everything to Notion... 🗂️")
             await process_confirmed_log(phone, payload)
             if pending:
                 await add_to_aggregation_buffer(phone, pending)
         elif text.lower() in ("cancel", "no", "n", "nao"):
             pending = session.get("pending_after_confirm")
             redis_client.delete(f"session:{phone}")
-            await send_message(phone, "Cancelled. Nothing was saved.")
+            await send_message(phone, "No worries, nothing was saved! Send me a new message whenever you're ready 😊")
             if pending:
                 await add_to_aggregation_buffer(phone, pending)
         else:
@@ -375,12 +377,12 @@ async def handle_undo_cmd(phone: str):
 
 async def handle_pause_cmd(phone: str):
     redis_client.setex(f"paused:{phone}", 86400, "1")
-    await send_message(phone, "Bot paused for 24h. Send *resume* to reactivate.")
+    await send_message(phone, "Got it! I'll be quiet for 24h. Send *resume* anytime to wake me up ⏸️")
 
 
 async def handle_resume_cmd(phone: str):
     redis_client.delete(f"paused:{phone}")
-    await send_message(phone, "Bot resumed! Ready to capture your day.")
+    await send_message(phone, "I'm back! Tell me about your day 🚀")
 
 
 async def handle_refresh_cmd(phone: str):

@@ -8,8 +8,6 @@ from app.agents.crew import run_crew_async
 from app.agents.tools import (
     create_notion_pages,
     update_notion_page,
-    search_notion,
-    query_data_source,
 )
 from app.config import settings
 from app.observability.logger import get_logger
@@ -38,7 +36,7 @@ async def run_notion_writer(payload: dict) -> str:
         role="Notion Data Writer",
         goal="Save structured productivity data to Notion in the correct order",
         backstory="You are an expert at writing structured data to Notion databases via MCP tools.",
-        tools=[create_notion_pages, update_notion_page, search_notion, query_data_source],
+        tools=[create_notion_pages, update_notion_page],
         llm=settings.OPENAI_MODEL,
         verbose=False,
     )

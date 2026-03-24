@@ -42,7 +42,7 @@ async def aggregation_worker():
                     from app.whatsapp.sender import send_message
                     from app.router.message_router import process_log
 
-                    await send_message(phone, "Got everything! Processing now...")
+                    await send_message(phone, "Got it all! Give me a sec... ⏳")
                     await process_log(phone, full_text)
 
         except Exception as e:
