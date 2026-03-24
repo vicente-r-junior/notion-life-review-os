@@ -2,7 +2,7 @@ import asyncio
 import concurrent.futures
 import json
 
-from crewai_tools import tool
+from crewai.tools import tool
 
 from app.notion.mcp_client import mcp_client
 

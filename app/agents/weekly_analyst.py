@@ -1,6 +1,7 @@
 import json
-from datetime import date
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from crewai import Agent, Task, Crew, Process
 
@@ -17,7 +18,7 @@ async def run_weekly_analyst(schemas: dict) -> str:
     template = prompt_path.read_text() if prompt_path.exists() else ""
     task_description = (
         template
-        .replace("{today}", date.today().isoformat())
+        .replace("{today}", datetime.now(ZoneInfo(settings.TIMEZONE)).strftime("%Y-%m-%d"))
         .replace("{schema}", json.dumps(schemas, indent=2))
     )
 
@@ -43,5 +44,5 @@ async def run_weekly_analyst(schemas: dict) -> str:
         verbose=False,
     )
 
-    result = await run_crew_async(crew, {"today": date.today().isoformat()})
+    result = await run_crew_async(crew, {"today": datetime.now(ZoneInfo(settings.TIMEZONE)).strftime("%Y-%m-%d")})
     return str(result)

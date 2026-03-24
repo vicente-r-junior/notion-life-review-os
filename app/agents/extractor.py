@@ -1,7 +1,8 @@
 import json
 import re
-from datetime import date
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from openai import AsyncOpenAI
 
@@ -30,7 +31,7 @@ async def run_extractor(text: str, schemas: dict) -> dict:
     prompt_path = Path("prompts/extractor.md")
     template = prompt_path.read_text() if prompt_path.exists() else ""
 
-    today = date.today().isoformat()
+    today = datetime.now(ZoneInfo(settings.TIMEZONE)).strftime("%Y-%m-%d")
     schemas_str = json.dumps(schemas, indent=2)
 
     system_prompt = template.replace("{today}", today).replace("{schemas}", schemas_str)

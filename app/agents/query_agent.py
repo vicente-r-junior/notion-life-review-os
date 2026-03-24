@@ -1,6 +1,7 @@
 import json
-from datetime import date
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from crewai import Agent, Task, Crew, Process
 
@@ -24,7 +25,7 @@ async def run_query_agent(question: str) -> str:
     task_description = (
         template
         .replace("{question}", question)
-        .replace("{today}", date.today().isoformat())
+        .replace("{today}", datetime.now(ZoneInfo(settings.TIMEZONE)).strftime("%Y-%m-%d"))
         .replace("{schema}", json.dumps(schemas, indent=2))
     )
 

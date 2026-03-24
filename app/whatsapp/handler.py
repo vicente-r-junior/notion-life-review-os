@@ -1,12 +1,24 @@
 import asyncio
 import json
+import re
 import time
+
+from openai import AsyncOpenAI
 
 from app.config import settings
 from app.observability.logger import get_logger, mask_phone
 from app.session.redis_store import redis_client
 from app.whatsapp.sender import send_message
 from app.audio.transcriber import transcribe
+
+_openai = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+
+WELCOME_MSG = (
+    "Welcome to *Life Review OS*!\n\n"
+    "I'll help you capture your daily logs, tasks, and learnings to Notion.\n\n"
+    "Just send me a message about your day and I'll take care of the rest.\n\n"
+    "Type *help* to see all commands."
+)
 
 logger = get_logger(__name__)
 
@@ -114,6 +126,11 @@ async def handle_webhook(payload: dict):
 
     text = text.strip()
 
+    # Onboarding — send welcome to new users then continue normally
+    if not redis_client.get(f"onboarded:{phone}"):
+        redis_client.set(f"onboarded:{phone}", "1")
+        await send_message(phone, WELCOME_MSG)
+
     # Check for special commands
     for cmd, handler_name in COMMANDS.items():
         if text.lower() == cmd.lower() or text.lower() == cmd.lower().strip("*"):
@@ -125,11 +142,6 @@ async def handle_webhook(payload: dict):
     if session_raw:
         session = json.loads(session_raw)
         await handle_session_reply(phone, text, session)
-        return
-
-    # Check onboarding
-    if not redis_client.get(f"onboarded:{phone}"):
-        await handle_onboarding(phone, text)
         return
 
     # Add to aggregation buffer
@@ -156,20 +168,81 @@ async def add_to_aggregation_buffer(phone: str, text: str):
     redis_client.setex(key, WINDOW_SECONDS + 10, json.dumps(session))
 
 
+async def detect_and_apply_modification(text: str, payload: dict) -> tuple[bool, dict | None]:
+    """Ask GPT whether the message is a modification request for the pending payload.
+    Returns (is_modification, updated_payload_or_None)."""
+    system = (
+        "You are helping modify a pending productivity log payload.\n"
+        "The user may want to change something before confirming.\n\n"
+        f"Current payload:\n{json.dumps(payload, indent=2)}\n\n"
+        "Decide if the user's message is a request to edit the payload "
+        "(e.g. 'change project name to X', 'remove that task', 'add task Y', 'set mood to 4').\n\n"
+        "If YES: apply the change and return:\n"
+        '{"is_modification": true, "updated_payload": {<complete updated payload>}}\n\n'
+        "If NO (it is new content to log, a question, or unrelated):\n"
+        '{"is_modification": false, "updated_payload": null}\n\n'
+        "Return ONLY valid JSON. No markdown fences."
+    )
+    response = await _openai.chat.completions.create(
+        model=settings.OPENAI_MODEL,
+        messages=[
+            {"role": "system", "content": system},
+            {"role": "user", "content": text},
+        ],
+        temperature=0,
+    )
+    raw = response.choices[0].message.content.strip()
+    raw = re.sub(r"```json\s*", "", raw)
+    raw = re.sub(r"```\s*", "", raw)
+    try:
+        result = json.loads(raw)
+    except Exception:
+        return False, None
+    is_mod = result.get("is_modification", False)
+    updated = result.get("updated_payload") if is_mod else None
+    return is_mod, updated
+
+
 async def handle_session_reply(phone: str, text: str, session: dict):
     state = session.get("state")
     payload = session.get("payload", {})
 
     if state == "waiting_confirmation":
         if text.lower() in ("confirm", "yes", "y", "sim"):
+            pending = session.get("pending_after_confirm")
             redis_client.delete(f"session:{phone}")
             await send_message(phone, "Saving to Notion...")
             await process_confirmed_log(phone, payload)
-        elif text.lower() in ("cancel", "no", "n", "nao", "nao"):
+            if pending:
+                await add_to_aggregation_buffer(phone, pending)
+        elif text.lower() in ("cancel", "no", "n", "nao"):
+            pending = session.get("pending_after_confirm")
             redis_client.delete(f"session:{phone}")
             await send_message(phone, "Cancelled. Nothing was saved.")
+            if pending:
+                await add_to_aggregation_buffer(phone, pending)
         else:
-            await send_message(phone, "Please reply with *confirm* or *cancel*.")
+            # Check if this is a mid-session modification request
+            is_mod, updated_payload = await detect_and_apply_modification(text, payload)
+            if is_mod and updated_payload:
+                session["payload"] = updated_payload
+                redis_client.setex(
+                    f"session:{phone}", settings.SESSION_TTL, json.dumps(session)
+                )
+                from app.agents.confirmation import run_confirmation
+                preview = await run_confirmation(updated_payload)
+                await send_message(phone, "Updated! Here's the new preview:\n\n" + preview)
+            else:
+                # Not a modification — hold it as pending and prompt user
+                session["pending_after_confirm"] = text
+                redis_client.setex(
+                    f"session:{phone}", settings.SESSION_TTL, json.dumps(session)
+                )
+                await send_message(
+                    phone,
+                    "Just reply *confirm* to save, or *cancel* to skip 😊\n"
+                    "I'll log your other message right after!",
+                )
 
     elif state == "waiting_project_choice":
         candidates = payload.get("candidates", [])
@@ -248,17 +321,6 @@ async def handle_session_reply(phone: str, text: str, session: dict):
         redis_client.delete(f"session:{phone}")
         await add_column_to_notion(phone, session["payload"])
 
-
-async def handle_onboarding(phone: str, text: str):
-    redis_client.set(f"onboarded:{phone}", "1")
-    await send_message(
-        phone,
-        "Welcome to *Life Review OS*!\n\n"
-        "I'll help you capture your daily logs, tasks, and learnings to Notion.\n\n"
-        "Just send me a message about your day and I'll take care of the rest.\n\n"
-        "Type *help* to see all commands.",
-    )
-    await add_to_aggregation_buffer(phone, text)
 
 
 async def dispatch_command(handler_name: str, phone: str):
