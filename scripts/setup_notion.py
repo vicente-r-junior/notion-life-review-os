@@ -91,7 +91,9 @@ async def main():
             db_info = await mcp_client.call_tool(
                 "API-retrieve-a-database", {"database_id": db_id}
             )
-            data_source_id = db_info["data_sources"][0]["id"]
+            raw = db_info.get("content", [{}])[0].get("text", "{}")
+            db_data = json.loads(raw)
+            data_source_id = db_data["data_sources"][0]["id"]
 
             await mcp_client.call_tool(
                 "API-update-a-data-source",

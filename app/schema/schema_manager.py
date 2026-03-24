@@ -27,14 +27,21 @@ async def bootstrap_schemas():
             continue
 
         try:
-            data_source_id = database_id
-
             db_info = await mcp_client.call_tool(
                 "API-retrieve-a-database", {"database_id": database_id}
             )
+            raw = db_info.get("content", [{}])[0].get("text", "{}")
+            db_data = json.loads(raw)
+            data_source_id = db_data["data_sources"][0]["id"]
+
+            schema = await mcp_client.call_tool(
+                "API-retrieve-a-data-source", {"data_source_id": data_source_id}
+            )
+            raw = schema.get("content", [{}])[0].get("text", "{}")
+            schema_data = json.loads(raw)
 
             fields = {}
-            for name, prop in db_info.get("properties", {}).items():
+            for name, prop in schema_data.get("properties", {}).items():
                 fields[name] = {
                     "type": prop.get("type"),
                     "required": prop.get("type") == "title",
@@ -101,7 +108,9 @@ async def diff_schemas():
             schema = await mcp_client.call_tool(
                 "API-retrieve-a-database", {"database_id": data_source_id}
             )
-            current_fields = set(schema.get("properties", {}).keys())
+            raw = schema.get("content", [{}])[0].get("text", "{}")
+            schema_data = json.loads(raw)
+            current_fields = set(schema_data.get("properties", {}).keys())
             added = current_fields - cached_fields
             if added:
                 new_fields[db_name] = list(added)
