@@ -30,9 +30,7 @@ async def bootstrap_schemas():
             db_info = await mcp_client.call_tool(
                 "API-retrieve-a-database", {"database_id": database_id}
             )
-            raw = db_info.get("content", [{}])[0].get("text", "{}")
-            db_data = json.loads(raw)
-            data_source_id = db_data["data_sources"][0]["id"]
+            data_source_id = database_id
 
             schema = await mcp_client.call_tool(
                 "API-retrieve-a-data-source", {"data_source_id": data_source_id}
