@@ -14,8 +14,17 @@ async def run_notion_writer(payload: dict) -> str:
     counts = {"projects": 0, "daily_log": 0, "tasks": 0, "learnings": 0}
     warnings = []
 
+    # Collect all project names — explicit updates + auto-inferred from tasks
+    explicit_names = {p["name"] for p in payload.get("project_updates", [])}
+    auto_projects = [
+        {"name": task["project"], "progress_note": f"Mentioned in task: {task['title']}"}
+        for task in payload.get("tasks", [])
+        if task.get("project") and task["project"] not in explicit_names
+    ]
+    all_projects = payload.get("project_updates", []) + auto_projects
+
     # 1. Projects
-    for project in payload.get("project_updates", []):
+    for project in all_projects:
         try:
             await mcp_client.call_tool("API-post-page", {
                 "parent": {"database_id": settings.NOTION_DB_PROJECTS},

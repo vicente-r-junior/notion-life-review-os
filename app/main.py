@@ -54,11 +54,15 @@ async def webhook(request: Request):
         raise HTTPException(status_code=400, detail="Invalid JSON payload")
 
     # Send immediate feedback synchronously before background processing
-    from app.whatsapp.handler import extract_phone, extract_audio
+    from app.whatsapp.handler import extract_phone, extract_audio, extract_text
     from app.whatsapp.sender import send_message as _send
     phone = extract_phone(payload)
     from_me = payload.get("data", {}).get("key", {}).get("fromMe", False)
     if phone and not from_me:
+        text = (extract_text(payload) or "").strip().lower()
+        if text in ("confirm", "yes", "y", "sim", "cancel", "no", "n", "nao"):
+            asyncio.create_task(handle_webhook(payload))
+            return {"status": "accepted"}
         audio = extract_audio(payload)
         msg = "🎙️ Got your voice note! Give me a sec..." if audio else "⏳ Got it!"
         await _send(phone, msg)
