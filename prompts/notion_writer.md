@@ -9,25 +9,40 @@ Write each item as a standalone page — no relations, no linked page IDs.
 Order:
 1. Create each project in the projects database.
 2. Create the Daily Log entry.
-3. Create each task in the tasks database. Store the project name as plain text
-   in the Project field (rich_text), not as a relation.
+3. Create each task in the tasks database.
 4. Create each learning in the learnings database.
 
 ## Property format rules
 
 Always use these exact formats when building the `properties` object:
 
-- Title field:     {"title": [{"text": {"content": "value"}}]}
-- Rich text field: {"rich_text": [{"text": {"content": "value"}}]}
-- Select field:    {"select": {"name": "value"}}
-- Date field:      {"date": {"start": "YYYY-MM-DD"}}
-- Number field:    {"number": 5}
+- Title field:       {"title": [{"text": {"content": "value"}}]}
+- Rich text field:   {"rich_text": [{"text": {"content": "value"}}]}
+- Select field:      {"select": {"name": "value"}}
+- Multi-select field:{"multi_select": [{"name": "tag1"}, {"name": "tag2"}]}
+- Date field:        {"date": {"start": "YYYY-MM-DD"}}
+- Number field:      {"number": 5}
 
 Every call to create_notion_pages MUST include:
 - `parent`: {"database_id": "<id from schema>"}
 - `properties`: an object using the formats above
 
-Example — creating a task:
+## Required fields per database
+
+### Daily Log
+{
+  "parent": {"database_id": "DAILY_LOGS_DB_ID"},
+  "properties": {
+    "Name":    {"title": [{"text": {"content": "Daily Log for 2026-03-25"}}]},
+    "Date":    {"date": {"start": "2026-03-25"}},
+    "Mood":    {"number": 7},
+    "Energy":  {"select": {"name": "high"}},
+    "Summary": {"rich_text": [{"text": {"content": "Had a productive day..."}}]},
+    "Tags":    {"multi_select": [{"name": "work"}, {"name": "health"}]}
+  }
+}
+
+### Task
 {
   "parent": {"database_id": "TASKS_DB_ID"},
   "properties": {
@@ -39,7 +54,7 @@ Example — creating a task:
   }
 }
 
-Example — creating a project (only these fields exist in the schema):
+### Project
 {
   "parent": {"database_id": "PROJECTS_DB_ID"},
   "properties": {
@@ -50,19 +65,33 @@ Example — creating a project (only these fields exist in the schema):
   }
 }
 
-Field value rules:
-- "Project" in tasks: use the project NAME as plain text, not a database ID or page ID.
-- "Daily Log" in tasks: use the daily log NAME as plain text (e.g. "Daily Log for YYYY-MM-DD"), not an ID.
-- Projects: only use Name, Status, Progress Note, Last Mentioned. No other fields.
+### Learning
+{
+  "parent": {"database_id": "LEARNINGS_DB_ID"},
+  "properties": {
+    "Name":      {"title": [{"text": {"content": "Insight text here"}}]},
+    "Insight":   {"rich_text": [{"text": {"content": "Insight text here"}}]},
+    "Area":      {"select": {"name": "tech"}},
+    "Date":      {"date": {"start": "2026-03-25"}},
+    "Daily Log": {"rich_text": [{"text": {"content": "Daily Log for 2026-03-25"}}]}
+  }
+}
 
-Never omit the `parent.database_id`. Never use plain strings as property values. Never put a database ID inside a rich_text field.
+## Field value rules
+
+- "Project" in tasks: use the project NAME as plain text, not a database ID or page ID.
+- "Daily Log" in tasks and learnings: use "Daily Log for YYYY-MM-DD" as plain text, not an ID.
+- Projects: only use Name, Status, Progress Note, Last Mentioned. No other fields.
+- Omit optional fields if the payload has no value for them.
+
+Never omit the `parent.database_id`. Never use plain strings as property values.
+Never put a database ID inside a rich_text or title field.
 
 ## General rules
 
 - Add 400ms delay between each write operation (respect Notion rate limit).
 - If a single write fails, do NOT abort. Continue with remaining writes.
   Collect all failures and report them at the end.
-- Include all fields from the payload that match the schema.
-- Do NOT use relations or page_id references between records.
-- At the end return: "Saved! Created X tasks · Updated Y projects · Logged Z learnings"
+- At the end return:
+  "Saved! Created {n} tasks · Updated {n} projects · Logged {n} learnings · 1 daily log"
   Or if there were failures: "Saved with warnings: [list each failure briefly]"
