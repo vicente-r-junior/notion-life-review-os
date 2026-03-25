@@ -100,8 +100,6 @@ async def handle_webhook(payload: dict):
     masked = mask_phone(phone)
     logger.info("webhook_received", phone=masked, msg_id=msg_id)
 
-    await send_message(phone, "⏳ Got it!")
-
     # Check if paused
     if redis_client.get(f"paused:{phone}"):
         text = extract_text(payload)
