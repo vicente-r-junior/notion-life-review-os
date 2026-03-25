@@ -27,16 +27,28 @@ async def bootstrap_schemas():
             continue
 
         try:
-            db_info = await mcp_client.call_tool(
-                "API-retrieve-a-database", {"database_id": database_id}
-            )
-            data_source_id = database_id
+            schema_data = {}
 
-            schema = await mcp_client.call_tool(
-                "API-retrieve-a-data-source", {"data_source_id": data_source_id}
-            )
-            raw = schema.get("content", [{}])[0].get("text", "{}")
-            schema_data = json.loads(raw)
+            # Primary: try API-retrieve-a-data-source
+            try:
+                resp = await mcp_client.call_tool(
+                    "API-retrieve-a-data-source", {"data_source_id": database_id}
+                )
+                raw = resp.get("content", [{}])[0].get("text", "{}")
+                schema_data = json.loads(raw)
+                logger.info("schema_from_data_source", db=db_name)
+            except Exception as primary_err:
+                logger.warning("schema_data_source_failed", db=db_name, error=str(primary_err))
+                # Fallback: use API-retrieve-a-database content
+                try:
+                    resp = await mcp_client.call_tool(
+                        "API-retrieve-a-database", {"database_id": database_id}
+                    )
+                    raw = resp.get("content", [{}])[0].get("text", "{}")
+                    schema_data = json.loads(raw)
+                    logger.info("schema_from_database", db=db_name)
+                except Exception as fallback_err:
+                    logger.error("schema_fallback_failed", db=db_name, error=str(fallback_err))
 
             fields = {}
             for name, prop in schema_data.get("properties", {}).items():
@@ -48,7 +60,7 @@ async def bootstrap_schemas():
 
             cache_value = {
                 "database_id": database_id,
-                "data_source_id": data_source_id,
+                "data_source_id": database_id,
                 "fields": fields,
             }
 

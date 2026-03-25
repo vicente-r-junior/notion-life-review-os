@@ -1,58 +1,103 @@
 import asyncio
-import json
-from pathlib import Path
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
-from crewai import Agent, Task, Crew, Process
-
-from app.agents.crew import run_crew_async
-from app.agents.tools import (
-    create_notion_pages,
-    update_notion_page,
-)
+from app.notion.mcp_client import mcp_client
 from app.config import settings
 from app.observability.logger import get_logger
-from app.schema.schema_manager import get_schema
 
 logger = get_logger(__name__)
 
-WRITE_DELAY = 0.4
-
 
 async def run_notion_writer(payload: dict) -> str:
-    schemas = {
-        db: get_schema(db)
-        for db in ["daily_logs", "tasks", "projects", "learnings"]
-    }
+    today = datetime.now(ZoneInfo(settings.TIMEZONE)).strftime("%Y-%m-%d")
+    counts = {"projects": 0, "daily_log": 0, "tasks": 0, "learnings": 0}
+    warnings = []
 
-    prompt_path = Path("prompts/notion_writer.md")
-    template = prompt_path.read_text() if prompt_path.exists() else ""
-    task_description = (
-        template
-        .replace("{payload}", json.dumps(payload, indent=2))
-        .replace("{schema}", json.dumps(schemas, indent=2))
-    )
+    # 1. Projects
+    for project in payload.get("project_updates", []):
+        try:
+            await mcp_client.call_tool("API-post-page", {
+                "parent": {"database_id": settings.NOTION_DB_PROJECTS},
+                "properties": {
+                    "Name": {"title": [{"text": {"content": project["name"]}}]},
+                    "Status": {"select": {"name": "Active"}},
+                    "Progress Note": {"rich_text": [{"text": {"content": project.get("progress_note", "")}}]},
+                    "Last Mentioned": {"date": {"start": today}},
+                },
+            })
+            counts["projects"] += 1
+            logger.info("notion_project_created", name=project["name"])
+        except Exception as e:
+            logger.error("notion_project_failed", name=project["name"], error=str(e))
+            warnings.append(f"Project '{project['name']}': {str(e)[:50]}")
+        await asyncio.sleep(0.4)
 
-    writer_agent = Agent(
-        role="Notion Data Writer",
-        goal="Save structured productivity data to Notion in the correct order",
-        backstory="You are an expert at writing structured data to Notion databases via MCP tools.",
-        tools=[create_notion_pages, update_notion_page],
-        llm=settings.OPENAI_MODEL,
-        verbose=False,
-    )
+    # 2. Daily Log
+    try:
+        tags = [{"name": t} for t in payload.get("tags", [])]
+        await mcp_client.call_tool("API-post-page", {
+            "parent": {"database_id": settings.NOTION_DB_DAILY_LOGS},
+            "properties": {
+                "Name": {"title": [{"text": {"content": f"Daily Log for {today}"}}]},
+                "Date": {"date": {"start": today}},
+                "Mood": {"number": payload.get("mood", 3)},
+                "Energy": {"select": {"name": payload.get("energy", "medium")}},
+                "Summary": {"rich_text": [{"text": {"content": payload.get("summary", "")}}]},
+                "Tags": {"multi_select": tags},
+            },
+        })
+        counts["daily_log"] = 1
+        logger.info("notion_daily_log_created", date=today)
+    except Exception as e:
+        logger.error("notion_daily_log_failed", error=str(e))
+        warnings.append(f"Daily log: {str(e)[:50]}")
+    await asyncio.sleep(0.4)
 
-    write_task = Task(
-        description=task_description,
-        agent=writer_agent,
-        expected_output="Confirmation message with counts of created/updated items",
-    )
+    # 3. Tasks
+    for task in payload.get("tasks", []):
+        try:
+            props = {
+                "Name": {"title": [{"text": {"content": task["title"]}}]},
+                "Status": {"select": {"name": "Todo"}},
+                "Project": {"rich_text": [{"text": {"content": task.get("project") or ""}}]},
+                "Daily Log": {"rich_text": [{"text": {"content": f"Daily Log for {today}"}}]},
+            }
+            if task.get("due_date"):
+                props["Due Date"] = {"date": {"start": task["due_date"]}}
+            await mcp_client.call_tool("API-post-page", {
+                "parent": {"database_id": settings.NOTION_DB_TASKS},
+                "properties": props,
+            })
+            counts["tasks"] += 1
+            logger.info("notion_task_created", title=task["title"])
+        except Exception as e:
+            logger.error("notion_task_failed", title=task["title"], error=str(e))
+            warnings.append(f"Task '{task['title']}': {str(e)[:50]}")
+        await asyncio.sleep(0.4)
 
-    crew = Crew(
-        agents=[writer_agent],
-        tasks=[write_task],
-        process=Process.sequential,
-        verbose=False,
-    )
+    # 4. Learnings
+    for learning in payload.get("learnings", []):
+        try:
+            await mcp_client.call_tool("API-post-page", {
+                "parent": {"database_id": settings.NOTION_DB_LEARNINGS},
+                "properties": {
+                    "Name": {"title": [{"text": {"content": learning["insight"]}}]},
+                    "Insight": {"rich_text": [{"text": {"content": learning["insight"]}}]},
+                    "Area": {"select": {"name": learning.get("area", "tech")}},
+                    "Date": {"date": {"start": today}},
+                    "Daily Log": {"rich_text": [{"text": {"content": f"Daily Log for {today}"}}]},
+                },
+            })
+            counts["learnings"] += 1
+            logger.info("notion_learning_created")
+        except Exception as e:
+            logger.error("notion_learning_failed", error=str(e))
+            warnings.append(f"Learning: {str(e)[:50]}")
+        await asyncio.sleep(0.4)
 
-    result = await run_crew_async(crew, {"payload": json.dumps(payload)})
-    return str(result)
+    daily_str = "✅ Daily log · " if counts["daily_log"] else ""
+    result = f"Saved! {daily_str}{counts['tasks']} tasks · {counts['projects']} projects · {counts['learnings']} learnings"
+    if warnings:
+        result += " | ⚠️ " + ", ".join(warnings[:3])
+    return result
