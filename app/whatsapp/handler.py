@@ -148,7 +148,7 @@ async def handle_webhook(payload: dict):
 
     # Onboarding — send welcome to new users then continue normally
     if not redis_client.get(f"onboarded:{phone}"):
-        redis_client.set(f"onboarded:{phone}", "1")
+        redis_client.setex(f"onboarded:{phone}", 86400 * 365, "1")  # 1 year
         await send_welcome(phone)
 
     # Check for special commands
