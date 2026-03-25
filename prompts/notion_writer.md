@@ -92,6 +92,10 @@ Never put a database ID inside a rich_text or title field.
 - Add 400ms delay between each write operation (respect Notion rate limit).
 - If a single write fails, do NOT abort. Continue with remaining writes.
   Collect all failures and report them at the end.
-- At the end return:
-  "Saved! Created {n} tasks · Updated {n} projects · Logged {n} learnings · 1 daily log"
-  Or if there were failures: "Saved with warnings: [list each failure briefly]"
+- Track counts yourself: increment a counter for each successful create_notion_pages call
+  by type (daily_log, task, project, learning).
+- At the end return exactly:
+  "Saved! ✅ Daily log · {n} tasks · {n} projects · {n} learnings"
+  Where each {n} is the actual count of successful writes for that type.
+  If daily log failed, omit "✅ Daily log" from the line.
+  If any writes failed, append: " | ⚠️ {brief failure summary}"

@@ -39,4 +39,7 @@ Rules:
 - Convert relative dates to absolute using today's date.
 - Fill custom schema fields only if explicitly mentioned in the message.
 - If mood or energy are not mentioned, make a reasonable inference from tone.
+- If the user mentions attending an event, meeting, review, or presentation in the future,
+  extract it as a task with the event name as title and the mentioned date as due_date.
+  Example: "sprint review next week" → task title "Sprint review", due_date next Monday's date.
 - Return ONLY the JSON. No markdown. No explanation. No code fences.
