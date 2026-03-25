@@ -42,4 +42,9 @@ Rules:
 - If the user mentions attending an event, meeting, review, or presentation in the future,
   extract it as a task with the event name as title and the mentioned date as due_date.
   Example: "sprint review next week" → task title "Sprint review", due_date next Monday's date.
+- IMPORTANT: If the task title contains a project name, or the message mentions a project
+  in the context of the task, ALWAYS populate the task's "project" field with that project name.
+  Example: "Sprint Review of the Infinity Code Project" → task.project = "Infinity Code Project"
+  Example: "deploy the app for Project X" → task.project = "Project X"
+  Never leave task.project null if a project name is mentioned anywhere in the message near the task.
 - Return ONLY the JSON. No markdown. No explanation. No code fences.

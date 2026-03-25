@@ -19,7 +19,7 @@ async def run_notion_writer(payload: dict) -> str:
     auto_projects = [
         {"name": task["project"], "progress_note": f"Mentioned in task: {task['title']}"}
         for task in payload.get("tasks", [])
-        if task.get("project") and task["project"] not in explicit_names
+        if task.get("project") and task["project"] is not None and task["project"] not in explicit_names
     ]
     all_projects = payload.get("project_updates", []) + auto_projects
 
