@@ -129,13 +129,14 @@ async def handle_webhook(payload: dict):
     # Check for audio
     audio = extract_audio(payload)
     if audio:
-        await send_message(phone, "Transcribing your audio...")
+        await send_message(phone, "🎙️ Give me a sec...")
         try:
             text = await transcribe(audio["url"], audio["mimetype"])
+            text = f"[Voice message]: {text}"
             logger.info("audio_transcribed", phone=masked, seconds=audio["seconds"])
         except Exception as e:
             logger.error("transcription_failed", error=str(e))
-            await send_message(phone, "Sorry, I couldn't transcribe that audio. Please try again.")
+            await send_message(phone, "Couldn't catch that audio, try again? 🎙️")
             return
     else:
         text = extract_text(payload)
