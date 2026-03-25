@@ -1,4 +1,6 @@
 import asyncio
+import difflib
+import json
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -23,8 +25,32 @@ async def run_notion_writer(payload: dict) -> str:
     ]
     all_projects = payload.get("project_updates", []) + auto_projects
 
+    # Fetch existing project names for dedup
+    existing_project_names: set[str] = set()
+    try:
+        qr = await mcp_client.call_tool(
+            "API-query-data-source",
+            {"data_source_id": settings.NOTION_DB_PROJECTS},
+        )
+        raw = qr.get("content", [{}])[0].get("text", "{}")
+        qr_data = json.loads(raw)
+        for page in qr_data.get("results", []):
+            titles = page.get("properties", {}).get("Name", {}).get("title", [])
+            if titles:
+                existing_project_names.add(titles[0].get("plain_text", "").lower())
+    except Exception as e:
+        logger.warning("project_dedup_fetch_failed", error=str(e))
+
     # 1. Projects
     for project in all_projects:
+        name_lower = project["name"].lower()
+        is_duplicate = any(
+            difflib.SequenceMatcher(None, name_lower, existing).ratio() >= 0.8
+            for existing in existing_project_names
+        )
+        if is_duplicate:
+            logger.info("notion_project_skipped_duplicate", name=project["name"])
+            continue
         try:
             await mcp_client.call_tool("API-post-page", {
                 "parent": {"database_id": settings.NOTION_DB_PROJECTS},

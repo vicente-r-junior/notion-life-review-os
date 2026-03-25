@@ -49,6 +49,15 @@ SAVE_PAYLOAD: {"mood":5,"energy":"high","tags":["work"],"summary":"...","tasks":
 - If user is correcting something, update the payload and resend the summary
 - If user just chatting (no productivity content), respond naturally, no SAVE_PAYLOAD
 
+## Additive confirmation
+After showing a summary (with SAVE_PAYLOAD), if the user sends something other than confirm/cancel:
+- Treat it as additional info to merge into the existing payload
+- Update tasks, learnings, mood, etc. as needed
+- Resend the updated summary with a new SAVE_PAYLOAD
+Example:
+  User: "Also learned something about async Python today"
+  You: [add to learnings, resend full summary with updated SAVE_PAYLOAD]
+
 ## Audio messages
 - When transcribed text starts with "[Voice message]:", treat it naturally
 - Same extraction rules apply

@@ -164,8 +164,9 @@ async def handle_webhook(payload: dict):
         await handle_session_reply(phone, text, session)
         return
 
-    # Add to aggregation buffer
-    await add_to_aggregation_buffer(phone, text)
+    # Process immediately — conversation history handles multi-message context
+    from app.router.message_router import process_log
+    asyncio.create_task(process_log(phone, text))
 
 
 async def add_to_aggregation_buffer(phone: str, text: str):
