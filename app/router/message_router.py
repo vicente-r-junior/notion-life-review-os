@@ -1,83 +1,76 @@
-import asyncio
 import json
+import re
 import time
+from datetime import datetime
+from pathlib import Path
+from zoneinfo import ZoneInfo
+
+from openai import AsyncOpenAI
 
 from app.config import settings
 from app.observability.logger import get_logger, mask_phone
 from app.session.redis_store import redis_client
+from app.session.conversation import get_history, append_history
 from app.whatsapp import sender
 
 logger = get_logger(__name__)
-
-SILENCE_SECONDS = settings.MESSAGE_AGGREGATION_SILENCE
-WINDOW_SECONDS = settings.MESSAGE_AGGREGATION_WINDOW
-
-
-async def classify_intent(text: str) -> str:
-    from openai import AsyncOpenAI
-    from pathlib import Path
-
-    client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
-    prompt_path = Path("prompts/intent_classifier.md")
-    system_prompt = prompt_path.read_text() if prompt_path.exists() else "Classify as: log, query, or add_column"
-
-    response = await client.chat.completions.create(
-        model=settings.OPENAI_MODEL,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": text},
-        ],
-        temperature=0,
-        max_tokens=10,
-    )
-    return response.choices[0].message.content.strip().lower()
+client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
 
 
 async def process_log(phone: str, text: str):
-    from app.agents.extractor import run_extractor
-    from app.agents.confirmation import run_confirmation
-    from app.schema.schema_manager import get_schema
-
     try:
-        intent = await classify_intent(text)
-        logger.info("intent_classified", intent=intent, phone=mask_phone(phone))
+        append_history(phone, "user", text)
+        history = get_history(phone)
+        today = datetime.now(ZoneInfo(settings.TIMEZONE)).strftime("%Y-%m-%d")
 
-        if intent == "query":
-            from app.agents.query_agent import run_query_agent
-            result = await run_query_agent(text)
-            await sender.send_message(phone, result)
-            return
+        prompt_path = Path("prompts/conversational_agent.md")
+        system_prompt = prompt_path.read_text().replace("{today}", today)
 
-        if intent == "add_column":
-            await start_add_column_flow(phone)
-            return
+        messages = [{"role": "system", "content": system_prompt}]
+        messages.extend(history[:-1])
+        messages.append({"role": "user", "content": text})
 
-        # Default: log
-        schemas = {
-            db: get_schema(db)
-            for db in ["daily_logs", "tasks", "projects", "learnings"]
-        }
-        payload = await run_extractor(text, schemas)
-        logger.info("extraction_result", payload=payload)
-
-        confirmation_msg = await run_confirmation(payload)
-
-        # Save session
-        session = {
-            "state": "waiting_confirmation",
-            "payload": payload,
-            "created_at": time.time(),
-        }
-        redis_client.setex(
-            f"session:{phone}",
-            settings.SESSION_TTL,
-            json.dumps(session),
+        response = await client.chat.completions.create(
+            model=settings.OPENAI_MODEL,
+            messages=messages,
+            temperature=0.4,
         )
-        await sender.send_message(phone, confirmation_msg)
+
+        reply = response.choices[0].message.content.strip()
+
+        if "SAVE_PAYLOAD:" in reply:
+            parts = reply.split("SAVE_PAYLOAD:", 1)
+            user_message = parts[0].strip()
+            payload_str = parts[1].strip()
+
+            try:
+                payload = json.loads(payload_str)
+            except json.JSONDecodeError:
+                match = re.search(r'\{.*\}', payload_str, re.DOTALL)
+                if match:
+                    payload = json.loads(match.group())
+                else:
+                    raise
+
+            session = {
+                "state": "waiting_confirmation",
+                "payload": payload,
+                "created_at": time.time(),
+            }
+            redis_client.setex(
+                f"session:{phone}",
+                settings.SESSION_TTL,
+                json.dumps(session),
+            )
+            append_history(phone, "assistant", user_message)
+            await sender.send_message(phone, user_message)
+        else:
+            append_history(phone, "assistant", reply)
+            await sender.send_message(phone, reply)
 
     except Exception as e:
         logger.error("process_log_failed", error=str(e), phone=mask_phone(phone))
-        await sender.send_message(phone, "Sorry, something went wrong. Please try again.")
+        await sender.send_message(phone, "Something went wrong, sorry! Try again 😅")
 
 
 async def start_add_column_flow(phone: str):
@@ -87,13 +80,9 @@ async def start_add_column_flow(phone: str):
         "created_at": time.time(),
     }
     redis_client.setex(f"session:{phone}", settings.SESSION_TTL, json.dumps(session))
-
     msg = (
-        "Which database do you want to add a column to?\n"
-        "1. daily_logs\n"
-        "2. tasks\n"
-        "3. projects\n"
-        "4. learnings\n"
-        "5. weekly_reports"
+        "Which database?\n"
+        "1. daily_logs\n2. tasks\n3. projects\n"
+        "4. learnings\n5. weekly_reports"
     )
     await sender.send_message(phone, msg)

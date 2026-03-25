@@ -1,17 +1,12 @@
 import asyncio
 import json
-import re
 import time
-
-from openai import AsyncOpenAI
 
 from app.config import settings
 from app.observability.logger import get_logger, mask_phone
 from app.session.redis_store import redis_client
 from app.whatsapp.sender import send_message
 from app.audio.transcriber import transcribe
-
-_openai = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
 
 WELCOME_MSG = (
     "Hey! Welcome to *Life Review OS* 👋\n\n"
@@ -168,40 +163,6 @@ async def add_to_aggregation_buffer(phone: str, text: str):
     redis_client.setex(key, WINDOW_SECONDS + 10, json.dumps(session))
 
 
-async def detect_and_apply_modification(text: str, payload: dict) -> tuple[bool, dict | None]:
-    """Ask GPT whether the message is a modification request for the pending payload.
-    Returns (is_modification, updated_payload_or_None)."""
-    system = (
-        "You are helping modify a pending productivity log payload.\n"
-        "The user may want to change something before confirming.\n\n"
-        f"Current payload:\n{json.dumps(payload, indent=2)}\n\n"
-        "Decide if the user's message is a request to edit the payload "
-        "(e.g. 'change project name to X', 'remove that task', 'add task Y', 'set mood to 4').\n\n"
-        "If YES: apply the change and return:\n"
-        '{"is_modification": true, "updated_payload": {<complete updated payload>}}\n\n'
-        "If NO (it is new content to log, a question, or unrelated):\n"
-        '{"is_modification": false, "updated_payload": null}\n\n'
-        "Return ONLY valid JSON. No markdown fences."
-    )
-    response = await _openai.chat.completions.create(
-        model=settings.OPENAI_MODEL,
-        messages=[
-            {"role": "system", "content": system},
-            {"role": "user", "content": text},
-        ],
-        temperature=0,
-    )
-    raw = response.choices[0].message.content.strip()
-    raw = re.sub(r"```json\s*", "", raw)
-    raw = re.sub(r"```\s*", "", raw)
-    try:
-        result = json.loads(raw)
-    except Exception:
-        return False, None
-    is_mod = result.get("is_modification", False)
-    updated = result.get("updated_payload") if is_mod else None
-    return is_mod, updated
-
 
 async def handle_session_reply(phone: str, text: str, session: dict):
     state = session.get("state")
@@ -218,31 +179,16 @@ async def handle_session_reply(phone: str, text: str, session: dict):
         elif text.lower() in ("cancel", "no", "n", "nao"):
             pending = session.get("pending_after_confirm")
             redis_client.delete(f"session:{phone}")
+            from app.session.conversation import clear_history
+            clear_history(phone)
             await send_message(phone, "No worries, nothing was saved! Send me a new message whenever you're ready 😊")
             if pending:
                 await add_to_aggregation_buffer(phone, pending)
         else:
-            # Check if this is a mid-session modification request
-            is_mod, updated_payload = await detect_and_apply_modification(text, payload)
-            if is_mod and updated_payload:
-                session["payload"] = updated_payload
-                redis_client.setex(
-                    f"session:{phone}", settings.SESSION_TTL, json.dumps(session)
-                )
-                from app.agents.confirmation import run_confirmation
-                preview = await run_confirmation(updated_payload)
-                await send_message(phone, "Updated! Here's the new preview:\n\n" + preview)
-            else:
-                # Not a modification — hold it as pending and prompt user
-                session["pending_after_confirm"] = text
-                redis_client.setex(
-                    f"session:{phone}", settings.SESSION_TTL, json.dumps(session)
-                )
-                await send_message(
-                    phone,
-                    "Just reply *confirm* to save, or *cancel* to skip 😊\n"
-                    "I'll log your other message right after!",
-                )
+            # Let the conversational agent handle corrections with history context
+            from app.router.message_router import process_log
+            redis_client.delete(f"session:{phone}")
+            await process_log(phone, text)
 
     elif state == "waiting_project_choice":
         candidates = payload.get("candidates", [])
@@ -392,8 +338,10 @@ async def handle_refresh_cmd(phone: str):
 
 async def process_confirmed_log(phone: str, payload: dict):
     from app.agents.notion_writer import run_notion_writer
+    from app.session.conversation import clear_history
     try:
         result = await run_notion_writer(payload)
+        clear_history(phone)
         await send_message(phone, result)
     except Exception as e:
         logger.error("notion_write_failed", error=str(e))
