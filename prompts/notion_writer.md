@@ -31,14 +31,31 @@ Example — creating a task:
 {
   "parent": {"database_id": "TASKS_DB_ID"},
   "properties": {
-    "Name":     {"title": [{"text": {"content": "Deploy app"}}]},
-    "Status":   {"select": {"name": "Todo"}},
-    "Due Date": {"date": {"start": "2026-03-25"}},
-    "Project":  {"rich_text": [{"text": {"content": "app"}}]}
+    "Name":      {"title": [{"text": {"content": "Deploy app"}}]},
+    "Status":    {"select": {"name": "Todo"}},
+    "Due Date":  {"date": {"start": "2026-03-25"}},
+    "Project":   {"rich_text": [{"text": {"content": "app"}}]},
+    "Daily Log": {"rich_text": [{"text": {"content": "Daily Log for 2026-03-25"}}]}
   }
 }
 
-Never omit the `parent.database_id`. Never use plain strings as property values.
+Example — creating a project (only these fields exist in the schema):
+{
+  "parent": {"database_id": "PROJECTS_DB_ID"},
+  "properties": {
+    "Name":           {"title": [{"text": {"content": "My Project"}}]},
+    "Status":         {"select": {"name": "Active"}},
+    "Progress Note":  {"rich_text": [{"text": {"content": "Started this sprint"}}]},
+    "Last Mentioned": {"date": {"start": "2026-03-25"}}
+  }
+}
+
+Field value rules:
+- "Project" in tasks: use the project NAME as plain text, not a database ID or page ID.
+- "Daily Log" in tasks: use the daily log NAME as plain text (e.g. "Daily Log for YYYY-MM-DD"), not an ID.
+- Projects: only use Name, Status, Progress Note, Last Mentioned. No other fields.
+
+Never omit the `parent.database_id`. Never use plain strings as property values. Never put a database ID inside a rich_text field.
 
 ## General rules
 
