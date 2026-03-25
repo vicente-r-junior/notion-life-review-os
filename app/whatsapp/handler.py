@@ -2,20 +2,44 @@ import asyncio
 import json
 import time
 
+from openai import AsyncOpenAI
+
 from app.config import settings
 from app.observability.logger import get_logger, mask_phone
 from app.session.redis_store import redis_client
 from app.whatsapp.sender import send_message
 from app.audio.transcriber import transcribe
 
-WELCOME_MSG = (
-    "Hey! Welcome to *Life Review OS* 👋\n\n"
-    "I'm your personal productivity assistant. Just tell me about your day — tasks, projects, how you're feeling — and I'll save everything to Notion for you automatically.\n\n"
-    "No forms, no menus. Just talk to me like you'd message a friend.\n\n"
-    "Type *help* to see what I can do. Let's go! 🚀"
-)
-
 logger = get_logger(__name__)
+
+
+async def send_welcome(phone: str):
+    from app.session.conversation import append_history
+    client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+    response = await client.chat.completions.create(
+        model=settings.OPENAI_MODEL,
+        messages=[
+            {"role": "system", "content": (
+                "You are a warm personal productivity assistant on WhatsApp. "
+                "This is your first message to a new user.\n\n"
+                "Write a SHORT welcome message (3-4 lines max) that:\n"
+                "- Feels like a real person texting, not a bot\n"
+                "- Explains you help capture daily logs, tasks and learnings to Notion\n"
+                "- Invites them to just tell you about their day naturally\n"
+                "- Uses 1-2 emoji max\n"
+                "- Does NOT list commands or features — keep it simple and human\n\n"
+                "Example tone (don't copy exactly):\n"
+                "Hey! I'm your Notion productivity assistant 👋\n"
+                "Just tell me about your day — tasks, projects, how you're feeling —\n"
+                "and I'll take care of saving everything to Notion for you.\n"
+                "What's on your mind?"
+            )},
+        ],
+        temperature=0.7,
+    )
+    msg = response.choices[0].message.content.strip()
+    append_history(phone, "assistant", msg)
+    await send_message(phone, msg)
 
 COMMANDS = {
     "*help*": "handle_help",
@@ -124,7 +148,7 @@ async def handle_webhook(payload: dict):
     # Onboarding — send welcome to new users then continue normally
     if not redis_client.get(f"onboarded:{phone}"):
         redis_client.set(f"onboarded:{phone}", "1")
-        await send_message(phone, WELCOME_MSG)
+        await send_welcome(phone)
 
     # Check for special commands
     for cmd, handler_name in COMMANDS.items():
