@@ -8,7 +8,6 @@ from fastapi.responses import JSONResponse
 from app.observability.logger import get_logger, setup_logging
 from app.observability.health import get_health
 from app.whatsapp.handler import handle_webhook
-from app.whatsapp.sender import send_message
 from app.schema.schema_manager import bootstrap_schemas
 from app.scheduler.weekly_cron import create_scheduler
 from app.scheduler.aggregation_worker import aggregation_worker
@@ -60,17 +59,18 @@ async def webhook(request: Request):
     phone = extract_phone(payload)
     from_me = payload.get("data", {}).get("key", {}).get("fromMe", False)
 
-    # Simple onboarding check
     if phone and not from_me:
         if not _redis.get(f"onboarded:{phone}"):
             _redis.setex(f"onboarded:{phone}", 86400 * 365, "1")
-            await send_message(phone,
+            from app.whatsapp.sender import send_message as _send
+            await _send(phone,
                 "Hey! 👋 I'm your Notion productivity assistant.\n\n"
                 "Just talk to me naturally — tell me about your tasks, "
-                "projects, how you're feeling — and I'll save everything "
-                "to Notion automatically.\n\n"
+                "projects, how you're feeling — and I'll organize "
+                "everything in Notion for you.\n\n"
                 "Try: 'Worked on Project X today, need to deploy tomorrow!'"
             )
+            return {"status": "accepted"}  # Don't process first message
 
     asyncio.create_task(handle_webhook(payload))
     return {"status": "accepted"}
