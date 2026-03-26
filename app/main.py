@@ -53,6 +53,17 @@ async def webhook(request: Request):
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid JSON payload")
 
+    from app.whatsapp.handler import extract_phone, send_welcome
+    from app.session.redis_store import redis_client as _redis
+
+    phone = extract_phone(payload)
+    from_me = payload.get("data", {}).get("key", {}).get("fromMe", False)
+
+    # Synchronous onboarding check — BEFORE background task
+    if phone and not from_me and not _redis.get(f"onboarded:{phone}"):
+        _redis.setex(f"onboarded:{phone}", 86400 * 365, "1")
+        await send_welcome(phone)
+
     asyncio.create_task(handle_webhook(payload))
     return {"status": "accepted"}
 

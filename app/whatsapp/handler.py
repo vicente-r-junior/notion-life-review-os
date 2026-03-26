@@ -113,14 +113,7 @@ async def handle_webhook(payload: dict):
     masked = mask_phone(phone)
     logger.info("webhook_received", phone=masked, msg_id=msg_id)
 
-    # 1. ONBOARDING — before everything else, trigger welcome for new users
-    if not redis_client.get(f"onboarded:{phone}"):
-        redis_client.setex(f"onboarded:{phone}", 86400 * 365, "1")  # 1 year
-        logger.info("onboarding_triggered", phone=masked)
-        await send_welcome(phone)
-        # Fall through to process the first message normally
-
-    # 2. Check if paused
+    # 1. Check if paused
     if redis_client.get(f"paused:{phone}"):
         text = extract_text(payload)
         if text and text.strip().lower() == "*resume*":
