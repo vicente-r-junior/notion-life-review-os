@@ -1,6 +1,7 @@
 import asyncio
 import json
 from datetime import datetime
+from difflib import SequenceMatcher
 from zoneinfo import ZoneInfo
 
 from app.notion.mcp_client import mcp_client
@@ -8,6 +9,10 @@ from app.config import settings
 from app.observability.logger import get_logger
 
 logger = get_logger(__name__)
+
+
+def _similar(a: str, b: str) -> bool:
+    return SequenceMatcher(None, a.lower(), b.lower()).ratio() > 0.72
 
 
 async def run_notion_writer(payload: dict) -> str:
@@ -44,13 +49,9 @@ async def run_notion_writer(payload: dict) -> str:
 
     # 1. Projects
     for project in all_projects:
-        proj_name_lower = project["name"].lower()
-        already_exists = any(
-            proj_name_lower in name or name in proj_name_lower
-            for name in existing_project_names
-        )
+        already_exists = any(_similar(project["name"], n) for n in existing_project_names)
         if already_exists:
-            logger.info("notion_project_skipped_duplicate", name=project["name"])
+            logger.info("project_skipped_duplicate", name=project["name"])
             continue
         try:
             await mcp_client.call_tool("API-post-page", {
@@ -63,6 +64,7 @@ async def run_notion_writer(payload: dict) -> str:
                 },
             })
             counts["projects"] += 1
+            existing_project_names.append(project["name"])
             logger.info("notion_project_created", name=project["name"])
         except Exception as e:
             logger.error("notion_project_failed", name=project["name"], error=str(e))

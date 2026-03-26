@@ -21,18 +21,12 @@ async def send_welcome(phone: str):
         messages=[
             {"role": "system", "content": (
                 "You are a warm personal productivity assistant on WhatsApp. "
-                "This is your first message to a new user.\n\n"
-                "Write a SHORT welcome message (3-4 lines max) that:\n"
+                "Write a SHORT welcome message (3 lines max) that:\n"
                 "- Feels like a real person texting, not a bot\n"
                 "- Explains you help capture daily logs, tasks and learnings to Notion\n"
-                "- Invites them to just tell you about their day naturally\n"
-                "- Uses 1-2 emoji max\n"
-                "- Does NOT list commands or features — keep it simple and human\n\n"
-                "Example tone (don't copy exactly):\n"
-                "Hey! I'm your Notion productivity assistant 👋\n"
-                "Just tell me about your day — tasks, projects, how you're feeling —\n"
-                "and I'll take care of saving everything to Notion for you.\n"
-                "What's on your mind?"
+                "- Invites them to tell you about their day\n"
+                "- 1 emoji max\n"
+                "- No feature lists, keep it human and simple"
             )},
         ],
         temperature=0.7,
@@ -149,6 +143,7 @@ async def handle_webhook(payload: dict):
     # Onboarding — send welcome to new users then continue normally
     if not redis_client.get(f"onboarded:{phone}"):
         redis_client.setex(f"onboarded:{phone}", 86400 * 365, "1")  # 1 year
+        logger.info("onboarding_triggered", phone=masked)
         await send_welcome(phone)
 
     # Check for special commands
@@ -190,29 +185,53 @@ async def add_to_aggregation_buffer(phone: str, text: str):
 
 
 
+async def detect_confirmation_intent(text: str) -> str:
+    client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+    response = await client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": (
+                "Classify intent as exactly one word: confirm, cancel, or continue.\n"
+                "confirm = user wants to save/proceed (ok, okay, yes, sure, all set, "
+                "deal, looks good, save it, let's go, go ahead, yep, 👍, perfect, done, "
+                "great, sounds good, confirmed, etc.)\n"
+                "cancel = user wants to discard (no, cancel, skip, forget it, nope, "
+                "don't save, abort, etc.)\n"
+                "continue = user is adding info, correcting, or asking something\n"
+                "Reply with ONLY one word."
+            )},
+            {"role": "user", "content": text},
+        ],
+        temperature=0,
+        max_tokens=5,
+    )
+    intent = response.choices[0].message.content.strip().lower()
+    return intent if intent in ("confirm", "cancel", "continue") else "continue"
+
+
 async def handle_session_reply(phone: str, text: str, session: dict):
     state = session.get("state")
     payload = session.get("payload", {})
 
     if state == "waiting_confirmation":
-        if text.lower() in ("confirm", "yes", "y", "sim", "save", "ok", "okay",
-                             "all set", "go ahead", "looks good", "save it", "done", "yep"):
+        intent = await detect_confirmation_intent(text)
+        if intent == "confirm":
             pending = session.get("pending_after_confirm")
             redis_client.delete(f"session:{phone}")
             await send_message(phone, "Saving everything to Notion... 🗂️")
             await process_confirmed_log(phone, payload)
             if pending:
                 await add_to_aggregation_buffer(phone, pending)
-        elif text.lower() in ("cancel", "no", "n", "nao"):
+        elif intent == "cancel":
             pending = session.get("pending_after_confirm")
             redis_client.delete(f"session:{phone}")
             from app.session.conversation import clear_history
             clear_history(phone)
-            await send_message(phone, "No worries, nothing was saved! Send me a new message whenever you're ready 😊")
+            await send_message(phone, "No worries, nothing saved! 😊")
             if pending:
                 await add_to_aggregation_buffer(phone, pending)
         else:
-            # Let the conversational agent handle corrections with history context
+            # User adding more info — pass to conversational agent with history context
             from app.router.message_router import process_log
             redis_client.delete(f"session:{phone}")
             await process_log(phone, text)
