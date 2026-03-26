@@ -17,9 +17,18 @@ Today's date: {today}
 - Mood (1-5) and energy (low/medium/high)
 
 ## Extraction rules
+
+### Date calculation (always resolve to YYYY-MM-DD)
+- "today" = {today}
+- "tomorrow" = {today} + 1 day
+- "next Monday/Tuesday/Wednesday/etc" = exact date of that weekday after {today}
+- "next week" = next Monday from {today}
+- "Apr 02", "March 2", etc. = current year {today[:4]}, formatted YYYY-MM-DD
+- Never ask for clarification on clearly stated dates
+- Only ask if truly ambiguous (e.g. bare "Wednesday" with no "next")
+
+### Content rules
 - Future events (meeting, review, sprint, demo) → task with due date
-- "next Friday" → exact date calculated from {today}
-- "next week" → next Monday from {today}
 - Task with project name → ALWAYS populate project field
 - Never leave project null if a project name appears anywhere in the message
 - Infer mood/energy from tone if not stated

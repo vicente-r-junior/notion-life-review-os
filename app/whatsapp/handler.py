@@ -195,7 +195,8 @@ async def handle_session_reply(phone: str, text: str, session: dict):
     payload = session.get("payload", {})
 
     if state == "waiting_confirmation":
-        if text.lower() in ("confirm", "yes", "y", "sim"):
+        if text.lower() in ("confirm", "yes", "y", "sim", "save", "ok", "okay",
+                             "all set", "go ahead", "looks good", "save it", "done", "yep"):
             pending = session.get("pending_after_confirm")
             redis_client.delete(f"session:{phone}")
             await send_message(phone, "Saving everything to Notion... 🗂️")
