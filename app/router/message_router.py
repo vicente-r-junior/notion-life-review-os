@@ -19,6 +19,14 @@ client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
 
 async def process_log(phone: str, text: str):
     try:
+        # If an active session exists, route directly to session handler
+        session_raw = redis_client.get(f"session:{phone}")
+        if session_raw:
+            from app.whatsapp.handler import handle_session_reply
+            session = json.loads(session_raw)
+            await handle_session_reply(phone, text, session)
+            return
+
         append_history(phone, "user", text)
         history = get_history(phone)
         today = datetime.now(ZoneInfo(settings.TIMEZONE)).strftime("%Y-%m-%d")
