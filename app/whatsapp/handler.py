@@ -113,14 +113,21 @@ async def handle_webhook(payload: dict):
     masked = mask_phone(phone)
     logger.info("webhook_received", phone=masked, msg_id=msg_id)
 
-    # Check if paused
+    # 1. ONBOARDING — before everything else, trigger welcome for new users
+    if not redis_client.get(f"onboarded:{phone}"):
+        redis_client.setex(f"onboarded:{phone}", 86400 * 365, "1")  # 1 year
+        logger.info("onboarding_triggered", phone=masked)
+        await send_welcome(phone)
+        # Fall through to process the first message normally
+
+    # 2. Check if paused
     if redis_client.get(f"paused:{phone}"):
         text = extract_text(payload)
         if text and text.strip().lower() == "*resume*":
             await handle_resume_cmd(phone)
         return
 
-    # Check for audio
+    # 3. Extract text (audio or plain)
     audio = extract_audio(payload)
     if audio:
         await send_message(phone, "🎙️ Give me a sec...")
@@ -140,27 +147,20 @@ async def handle_webhook(payload: dict):
 
     text = text.strip()
 
-    # Onboarding — FIRST: send welcome to new users, then continue processing normally
-    if not redis_client.get(f"onboarded:{phone}"):
-        redis_client.setex(f"onboarded:{phone}", 86400 * 365, "1")  # 1 year
-        logger.info("onboarding_triggered", phone=masked)
-        await send_welcome(phone)
-        # Fall through to process the first message normally
-
-    # Check for special commands
+    # 4. Check for special commands
     for cmd, handler_name in COMMANDS.items():
         if text.lower() == cmd.lower() or text.lower() == cmd.lower().strip("*"):
             await dispatch_command(handler_name, phone)
             return
 
-    # Check for active session (confirmation/choice)
+    # 5. Check for active session (confirmation/choice)
     session_raw = redis_client.get(f"session:{phone}")
     if session_raw:
         session = json.loads(session_raw)
         await handle_session_reply(phone, text, session)
         return
 
-    # Process immediately — conversation history handles multi-message context
+    # 6. Process immediately — conversation history handles multi-message context
     from app.router.message_router import process_log
     asyncio.create_task(process_log(phone, text))
 

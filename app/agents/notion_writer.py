@@ -29,26 +29,29 @@ async def run_notion_writer(payload: dict) -> str:
     ]
     all_projects = payload.get("project_updates", []) + auto_projects
 
-    # Fetch existing project names for dedup
-    existing_project_names: list[str] = []
-    try:
-        qr = await mcp_client.call_tool(
-            "API-query-data-source",
-            {"data_source_id": settings.NOTION_DB_PROJECTS},
-        )
-        raw = qr.get("content", [{}])[0].get("text", "{}")
-        qr_data = json.loads(raw)
-        for page in qr_data.get("results", []):
-            title_prop = page.get("properties", {}).get("Name", {}).get("title", [])
-            if title_prop:
-                name = title_prop[0].get("text", {}).get("content", "").lower()
-                if name:
-                    existing_project_names.append(name)
-    except Exception as e:
-        logger.warning("project_dedup_fetch_failed", error=str(e))
-
     # 1. Projects
     for project in all_projects:
+        # Search Notion for existing projects with similar name
+        existing_project_names: list[str] = []
+        try:
+            search_raw = await mcp_client.call_tool(
+                "API-post-search",
+                {"query": project["name"]},
+            )
+            content = search_raw.get("content", [{}])[0].get("text", "{}")
+            search_data = json.loads(content)
+            for result in search_data.get("results", []):
+                if result.get("object") == "page":
+                    props = result.get("properties", {})
+                    title_list = props.get("Name", {}).get("title", [])
+                    if title_list:
+                        name = title_list[0].get("text", {}).get("content", "")
+                        if name:
+                            existing_project_names.append(name)
+                            logger.info("found_existing_project", name=name)
+        except Exception as e:
+            logger.warning("project_search_failed", error=str(e))
+
         already_exists = any(_similar(project["name"], n) for n in existing_project_names)
         if already_exists:
             logger.info("project_skipped_duplicate", name=project["name"])
