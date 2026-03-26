@@ -13,39 +13,6 @@ from app.audio.transcriber import transcribe
 logger = get_logger(__name__)
 
 
-async def send_welcome(phone: str):
-    from app.session.conversation import append_history
-    client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
-    response = await client.chat.completions.create(
-        model=settings.OPENAI_MODEL,
-        messages=[
-            {"role": "system", "content": (
-                "You are a personal productivity assistant on WhatsApp connected "
-                "to the user's Notion workspace. This is your FIRST message to a "
-                "brand new user — it's their onboarding.\n\n"
-                "Write a warm welcome message (4-5 lines max) that:\n"
-                "- Greets them and introduces yourself as their Notion assistant\n"
-                "- Explains they can capture tasks, projects, learnings and mood "
-                "just by sending natural messages\n"
-                "- Give one concrete example like: 'Try sending something like "
-                "Worked on Project X today, feeling great!'\n"
-                "- Ends with an invitation to try it now\n"
-                "- 1-2 emoji max\n"
-                "- Human and warm, not corporate or robotic\n\n"
-                "Example tone (don't copy exactly):\n"
-                "Hey! 👋 I'm your personal Notion assistant.\n"
-                "Just talk to me like you'd message a friend — tell me about your day, "
-                "your tasks, what you learned — and I'll save everything to Notion for you automatically.\n"
-                "Try it: 'Finished the login feature for Project X today, feeling great!'\n"
-                "What's on your mind?"
-            )},
-        ],
-        temperature=0.7,
-    )
-    msg = response.choices[0].message.content.strip()
-    append_history(phone, "assistant", msg)
-    await send_message(phone, msg)
-
 COMMANDS = {
     "*help*": "handle_help",
     "*status*": "handle_status",

@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 from app.observability.logger import get_logger, setup_logging
 from app.observability.health import get_health
 from app.whatsapp.handler import handle_webhook
+from app.whatsapp.sender import send_message
 from app.schema.schema_manager import bootstrap_schemas
 from app.scheduler.weekly_cron import create_scheduler
 from app.scheduler.aggregation_worker import aggregation_worker
@@ -53,24 +54,23 @@ async def webhook(request: Request):
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid JSON payload")
 
-    from app.whatsapp.handler import extract_phone, send_welcome
+    from app.whatsapp.handler import extract_phone
     from app.session.redis_store import redis_client as _redis
 
     phone = extract_phone(payload)
     from_me = payload.get("data", {}).get("key", {}).get("fromMe", False)
 
-    logger.info("webhook_onboard_check",
-        phone=phone[:5] + "****" if phone else "empty",
-        from_me=from_me,
-        onboarded=bool(_redis.get(f"onboarded:{phone}")),
-        will_onboard=bool(phone and not from_me and not _redis.get(f"onboarded:{phone}"))
-    )
-
-    # Synchronous onboarding check — BEFORE background task
-    if phone and not from_me and not _redis.get(f"onboarded:{phone}"):
-        _redis.setex(f"onboarded:{phone}", 86400 * 365, "1")
-        logger.info("onboarding_sending", phone=phone[:5] + "****")
-        await send_welcome(phone)
+    # Simple onboarding check
+    if phone and not from_me:
+        if not _redis.get(f"onboarded:{phone}"):
+            _redis.setex(f"onboarded:{phone}", 86400 * 365, "1")
+            await send_message(phone,
+                "Hey! 👋 I'm your Notion productivity assistant.\n\n"
+                "Just talk to me naturally — tell me about your tasks, "
+                "projects, how you're feeling — and I'll save everything "
+                "to Notion automatically.\n\n"
+                "Try: 'Worked on Project X today, need to deploy tomorrow!'"
+            )
 
     asyncio.create_task(handle_webhook(payload))
     return {"status": "accepted"}
