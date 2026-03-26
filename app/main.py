@@ -59,9 +59,17 @@ async def webhook(request: Request):
     phone = extract_phone(payload)
     from_me = payload.get("data", {}).get("key", {}).get("fromMe", False)
 
+    logger.info("webhook_onboard_check",
+        phone=phone[:5] + "****" if phone else "empty",
+        from_me=from_me,
+        onboarded=bool(_redis.get(f"onboarded:{phone}")),
+        will_onboard=bool(phone and not from_me and not _redis.get(f"onboarded:{phone}"))
+    )
+
     # Synchronous onboarding check — BEFORE background task
     if phone and not from_me and not _redis.get(f"onboarded:{phone}"):
         _redis.setex(f"onboarded:{phone}", 86400 * 365, "1")
+        logger.info("onboarding_sending", phone=phone[:5] + "****")
         await send_welcome(phone)
 
     asyncio.create_task(handle_webhook(payload))
