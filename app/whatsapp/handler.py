@@ -140,11 +140,12 @@ async def handle_webhook(payload: dict):
 
     text = text.strip()
 
-    # Onboarding — send welcome to new users then continue normally
+    # Onboarding — FIRST: send welcome to new users, then continue processing normally
     if not redis_client.get(f"onboarded:{phone}"):
         redis_client.setex(f"onboarded:{phone}", 86400 * 365, "1")  # 1 year
         logger.info("onboarding_triggered", phone=masked)
         await send_welcome(phone)
+        # Fall through to process the first message normally
 
     # Check for special commands
     for cmd, handler_name in COMMANDS.items():

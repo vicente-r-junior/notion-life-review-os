@@ -49,29 +49,43 @@ async def process_log(phone: str, text: str):
         if "SAVE_PAYLOAD:" in reply:
             parts = reply.split("SAVE_PAYLOAD:", 1)
             user_message = parts[0].strip()
-            payload_str = parts[1].strip()
+            payload_raw = parts[1].strip()
+
+            # Extract exactly the JSON object using brace counting
+            brace_count = 0
+            json_end = 0
+            for i, ch in enumerate(payload_raw):
+                if ch == '{':
+                    brace_count += 1
+                elif ch == '}':
+                    brace_count -= 1
+                    if brace_count == 0:
+                        json_end = i + 1
+                        break
+
+            payload_str = payload_raw[:json_end] if json_end > 0 else payload_raw
 
             try:
                 payload = json.loads(payload_str)
-            except json.JSONDecodeError:
-                match = re.search(r'\{.*\}', payload_str, re.DOTALL)
-                if match:
-                    payload = json.loads(match.group())
-                else:
-                    raise
-
-            session = {
-                "state": "waiting_confirmation",
-                "payload": payload,
-                "created_at": time.time(),
-            }
-            redis_client.setex(
-                f"session:{phone}",
-                settings.SESSION_TTL,
-                json.dumps(session),
-            )
-            append_history(phone, "assistant", user_message)
-            await sender.send_message(phone, user_message)
+                session = {
+                    "state": "waiting_confirmation",
+                    "payload": payload,
+                    "created_at": time.time(),
+                }
+                redis_client.setex(
+                    f"session:{phone}",
+                    settings.SESSION_TTL,
+                    json.dumps(session),
+                )
+                logger.info("session_created", phone=mask_phone(phone), payload_keys=list(payload.keys()))
+                append_history(phone, "assistant", user_message)
+                await sender.send_message(phone, user_message)
+            except Exception as e:
+                logger.error("save_payload_parse_failed", error=str(e), raw=payload_str[:100])
+                # Still send the message even if payload parsing failed
+                msg_to_send = user_message if user_message else reply
+                append_history(phone, "assistant", msg_to_send)
+                await sender.send_message(phone, msg_to_send)
         else:
             append_history(phone, "assistant", reply)
             await sender.send_message(phone, reply)

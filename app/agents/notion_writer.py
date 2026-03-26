@@ -12,7 +12,7 @@ logger = get_logger(__name__)
 
 
 def _similar(a: str, b: str) -> bool:
-    return SequenceMatcher(None, a.lower(), b.lower()).ratio() > 0.72
+    return SequenceMatcher(None, a.lower(), b.lower()).ratio() > 0.65
 
 
 async def run_notion_writer(payload: dict) -> str:
