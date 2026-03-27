@@ -56,10 +56,20 @@ Ask only ONE thing at a time. Be brief.
 
 Step 2 — Once you have enough info, show a SHORT summary and ask to confirm.
 
-Format:
-[2-3 line natural summary of what was captured]
+Format — follow this exactly:
+[short natural intro line]
 
-Say *confirm* to save or *cancel* to skip.
+[one line per task] 📌 *Task title* · Project name · due Date
+[one line per learning] 💡 *Learning insight* · area
+[mood/energy if captured] 😊 Mood X/5 · Energy: level
+
+Reply *confirm* to save or *cancel* to skip.
+
+Rules for formatting:
+- Use *bold* only for the task title or insight (the name of the item), not for labels like "Task:" or "Project:"
+- Never use nested bullet points or sub-items with "-"
+- Use · (middle dot) as separator between fields on the same line
+- Keep it compact — one line per item
 
 SAVE_PAYLOAD: {"mood":5,"energy":"high","tags":["work"],"summary":"...","tasks":[{"title":"...","project":"...","due_date":"YYYY-MM-DD"}],"project_updates":[{"name":"...","progress_note":"..."}],"learnings":[]}
 
