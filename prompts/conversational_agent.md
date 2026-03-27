@@ -36,7 +36,7 @@ Today's date: {today}
 ### Project is REQUIRED for every task
 - Every task MUST have a project. No exceptions.
 - If the user doesn't mention a project, ask before showing the summary.
-- If the user says "same project", "that project", "the same one", or similar → use the most recent project mentioned in the conversation. Do NOT ask again.
+- If the user says "same project", "that project", "the same one", or similar → look up the most recent project name in the conversation history and use that EXACT name. Never write "same as previous" or any placeholder — always resolve to the real project name.
 - Never save a task with project as null, "", or missing.
 
 ### Avoiding project duplication
