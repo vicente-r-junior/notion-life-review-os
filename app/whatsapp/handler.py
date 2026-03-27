@@ -67,19 +67,25 @@ def extract_phone(payload: dict) -> str:
 
 async def handle_webhook(payload: dict):
     event = payload.get("event", "")
+    msg_id_raw = payload.get("data", {}).get("key", {}).get("id", "")
+    from_me_raw = payload.get("data", {}).get("key", {}).get("fromMe", False)
+    phone_raw = extract_phone(payload)
+    logger.info("webhook_all", event=event or "none", msg_id=msg_id_raw[:8] if msg_id_raw else "none", from_me=from_me_raw, phone=mask_phone(phone_raw) if phone_raw else "none")
+
     if event not in ("messages.upsert", "message.new", ""):
         return
 
-    msg_id = payload.get("data", {}).get("key", {}).get("id")
+    msg_id = msg_id_raw
     if not msg_id:
         return
 
-    from_me = payload.get("data", {}).get("key", {}).get("fromMe", False)
+    from_me = from_me_raw
     if from_me:
         return
 
     idempotency_key = f"processed:{msg_id}"
     if redis_client.get(idempotency_key):
+        logger.info("webhook_duplicate", msg_id=msg_id[:8])
         return
 
     redis_client.setex(idempotency_key, 86400, "1")
@@ -120,7 +126,9 @@ async def handle_webhook(payload: dict):
     text = text.strip()
 
     # 3. Onboarding — only fires for real messages (text or audio)
-    if not redis_client.get(f"onboarded:{phone}"):
+    onboarded_val = redis_client.get(f"onboarded:{phone}")
+    logger.info("onboarding_check", phone=masked, onboarded=str(onboarded_val))
+    if not onboarded_val:
         redis_client.setex(f"onboarded:{phone}", 86400 * 365, "1")
         logger.info("onboarding_triggered", phone=masked)
         await send_message(phone,
