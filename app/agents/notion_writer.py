@@ -30,9 +30,9 @@ async def run_notion_writer(payload: dict) -> str:
     all_projects = payload.get("project_updates", []) + auto_projects
 
     # 1. Projects
+    existing_project_names: list[str] = []
     for project in all_projects:
         # Search Notion for existing projects with similar name
-        existing_project_names: list[str] = []
         try:
             search_raw = await mcp_client.call_tool(
                 "API-post-search",

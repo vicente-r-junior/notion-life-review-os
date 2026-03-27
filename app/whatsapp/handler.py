@@ -389,9 +389,8 @@ async def process_confirmed_log(phone: str, payload: dict):
 
 
 async def add_column_to_notion(phone: str, payload: dict):
-    from app.agents.tools import update_data_source
-    from app.schema.schema_manager import get_data_source_id
-    import json as json_lib
+    from app.notion.mcp_client import mcp_client
+    from app.schema.schema_manager import get_data_source_id, mark_field_required
 
     db_name = payload.get("chosen_db")
     column_name = payload.get("column_name")
@@ -402,12 +401,13 @@ async def add_column_to_notion(phone: str, payload: dict):
         await send_message(phone, "Could not find database schema. Try *refresh* first.")
         return
 
-    properties = {column_name: column_type}
     try:
-        update_data_source(data_source_id, json_lib.dumps(properties))
+        await mcp_client.call_tool(
+            "API-update-a-data-source",
+            {"data_source_id": data_source_id, "properties": {column_name: column_type}},
+        )
         await send_message(phone, f"Column *{column_name}* added to *{db_name}*!")
         if payload.get("required"):
-            from app.schema.schema_manager import mark_field_required
             mark_field_required(db_name, column_name, True)
     except Exception as e:
         logger.error("add_column_failed", error=str(e))
