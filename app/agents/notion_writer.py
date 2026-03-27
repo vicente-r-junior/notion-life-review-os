@@ -20,13 +20,15 @@ async def run_notion_writer(payload: dict) -> str:
     counts = {"projects": 0, "daily_log": 0, "tasks": 0, "learnings": 0}
     warnings = []
 
-    # Collect all project names — explicit updates + auto-inferred from tasks
+    # Collect all project names — explicit updates + auto-inferred from tasks (deduplicated)
     explicit_names = {p["name"] for p in payload.get("project_updates", [])}
-    auto_projects = [
-        {"name": task["project"], "progress_note": f"Mentioned in task: {task['title']}"}
-        for task in payload.get("tasks", [])
-        if task.get("project") and task["project"] is not None and task["project"] not in explicit_names
-    ]
+    seen_names = set(explicit_names)
+    auto_projects = []
+    for task in payload.get("tasks", []):
+        name = task.get("project")
+        if name and name not in seen_names:
+            auto_projects.append({"name": name, "progress_note": f"Mentioned in task: {task['title']}"})
+            seen_names.add(name)
     all_projects = payload.get("project_updates", []) + auto_projects
 
     # 1. Projects
