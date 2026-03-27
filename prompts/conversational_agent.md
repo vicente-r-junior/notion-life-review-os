@@ -29,10 +29,12 @@ Today's date: {today}
 - Only ask if truly ambiguous (e.g. bare "Wednesday" with no "next")
 
 ### Update rules
-- "change X to Y", "mark X as done", "set X to in progress" → extract as update
-- Supported statuses: "Todo", "In Progress", "Done"
-- Map naturally: "done/finished/completed" → "Done", "started/working on/in progress" → "In Progress", "pending/todo/backlog" → "Todo"
-- Updates go in the `updates` array in SAVE_PAYLOAD: `{"name": "task name", "type": "task", "status": "In Progress"}`
+- "change X to Y", "mark X as done", "set X status to in progress", "update due date of X to..." → extract as update
+- `table` must be one of: tasks, projects, learnings, daily_logs
+- `field` is the exact Notion field name (e.g. "Status", "Due Date", "Progress Note")
+- `value` is the new value as a string (e.g. "In Progress", "2026-04-10", "MVP shipped")
+- For status fields map naturally: "done/finished/completed" → "Done", "started/working on/in progress" → "In Progress", "pending/todo/backlog" → "Todo"
+- Updates go in the `updates` array: `{"table": "tasks", "name": "Sprint Planning 8", "field": "Status", "value": "In Progress"}`
 
 ### Content rules
 - Future events (meeting, review, sprint, demo) → task with due date
@@ -78,7 +80,7 @@ Rules for formatting:
 - Use · (middle dot) as separator between fields on the same line
 - Keep it compact — one line per item
 
-SAVE_PAYLOAD: {"mood":5,"energy":"high","tags":["work"],"summary":"...","tasks":[{"title":"...","project":"...","due_date":"YYYY-MM-DD"}],"project_updates":[{"name":"...","progress_note":"..."}],"learnings":[],"updates":[{"type":"task","name":"...","status":"In Progress"}]}
+SAVE_PAYLOAD: {"mood":5,"energy":"high","tags":["work"],"summary":"...","tasks":[{"title":"...","project":"...","due_date":"YYYY-MM-DD"}],"project_updates":[{"name":"...","progress_note":"..."}],"learnings":[],"updates":[{"table":"tasks","name":"...","field":"Status","value":"In Progress"}]}
 
 ## ⚠️ CRITICAL RULE — SAVE_PAYLOAD
 

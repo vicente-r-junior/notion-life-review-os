@@ -7,12 +7,39 @@ from zoneinfo import ZoneInfo
 from app.notion.mcp_client import mcp_client
 from app.config import settings
 from app.observability.logger import get_logger
+from app.schema.schema_manager import get_schema, DATABASE_MAP
 
 logger = get_logger(__name__)
 
 
 def _similar(a: str, b: str) -> bool:
     return SequenceMatcher(None, a.lower(), b.lower()).ratio() > 0.65
+
+
+def _format_property(field_type: str, value: str) -> dict:
+    """Convert a string value to the correct Notion property format based on field type."""
+    if field_type == "select":
+        return {"select": {"name": value}}
+    elif field_type == "multi_select":
+        options = [v.strip() for v in value.split(",") if v.strip()]
+        return {"multi_select": [{"name": o} for o in options]}
+    elif field_type == "date":
+        return {"date": {"start": value}}
+    elif field_type == "number":
+        try:
+            return {"number": float(value)}
+        except ValueError:
+            return {"number": 0}
+    elif field_type == "checkbox":
+        return {"checkbox": value.lower() in ("true", "yes", "1", "done")}
+    elif field_type == "url":
+        return {"url": value}
+    elif field_type == "email":
+        return {"email": value}
+    elif field_type == "title":
+        return {"title": [{"text": {"content": value}}]}
+    else:
+        return {"rich_text": [{"text": {"content": value}}]}
 
 
 async def run_notion_writer(payload: dict) -> str:
@@ -143,21 +170,43 @@ async def run_notion_writer(payload: dict) -> str:
     counts["updates"] = 0
     for update in payload.get("updates", []):
         name = update.get("name", "")
-        status = update.get("status", "")
-        record_type = update.get("type", "task")
-        if not name or not status:
+        table = update.get("table", "tasks")
+        field_name = update.get("field", "")
+        value = update.get("value", "")
+        if not name or not field_name or value == "":
             continue
         try:
+            # Resolve field type from cached schema
+            schema = get_schema(table)
+            fields = schema.get("fields", {})
+            # Exact match first, then case-insensitive, then fuzzy
+            field_key = None
+            if field_name in fields:
+                field_key = field_name
+            else:
+                for k in fields:
+                    if k.lower() == field_name.lower():
+                        field_key = k
+                        break
+            if not field_key:
+                for k in fields:
+                    if _similar(field_name, k):
+                        field_key = k
+                        break
+            field_type = fields[field_key]["type"] if field_key else "rich_text"
+            notion_value = _format_property(field_type, str(value))
+
+            # Find the page in the correct database
+            db_id = DATABASE_MAP.get(table, "")
             search_raw = await mcp_client.call_tool("API-post-search", {"query": name})
             content = search_raw.get("content", [{}])[0].get("text", "{}")
             search_data = json.loads(content)
             page_id = None
-            db_id = settings.NOTION_DB_TASKS if record_type == "task" else settings.NOTION_DB_PROJECTS
             for result in search_data.get("results", []):
                 if result.get("object") != "page":
                     continue
                 parent_db = result.get("parent", {}).get("database_id", "").replace("-", "")
-                if parent_db != db_id.replace("-", ""):
+                if db_id and parent_db != db_id.replace("-", ""):
                     continue
                 title_list = result.get("properties", {}).get("Name", {}).get("title", [])
                 if title_list:
@@ -165,15 +214,17 @@ async def run_notion_writer(payload: dict) -> str:
                     if _similar(name, page_name):
                         page_id = result["id"]
                         break
+
             if not page_id:
                 warnings.append(f"'{name}' not found in Notion")
                 continue
+
             await mcp_client.call_tool("API-patch-page", {
                 "page_id": page_id,
-                "properties": {"Status": {"select": {"name": status}}},
+                "properties": {field_key or field_name: notion_value},
             })
             counts["updates"] += 1
-            logger.info("notion_record_updated", name=name, status=status)
+            logger.info("notion_record_updated", name=name, field=field_key, value=value)
         except Exception as e:
             logger.error("notion_update_failed", name=name, error=str(e))
             warnings.append(f"Update '{name}': {str(e)[:50]}")

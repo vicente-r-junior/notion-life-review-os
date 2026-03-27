@@ -58,6 +58,10 @@ async def bootstrap_schemas():
                     "id": prop.get("id"),
                 }
 
+            if not fields:
+                logger.warning("schema_empty_fields", db=db_name)
+                continue
+
             cache_value = {
                 "database_id": database_id,
                 "data_source_id": database_id,
@@ -69,7 +73,7 @@ async def bootstrap_schemas():
                 settings.SCHEMA_CACHE_TTL,
                 json.dumps(cache_value),
             )
-            logger.info("schema_cached", db=db_name, fields=len(fields))
+            logger.info("schema_cached", db=db_name, fields=len(fields), field_names=list(fields.keys()))
 
         except Exception as e:
             logger.error("schema_bootstrap_failed", db=db_name, error=str(e))
