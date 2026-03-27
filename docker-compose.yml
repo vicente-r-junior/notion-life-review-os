@@ -5,11 +5,13 @@ services:
       - "127.0.0.1:8000:8000"
     env_file:
       - .env
+    environment:
+      - REDIS_URL=redis://app-redis:6379
     volumes:
       - .:/app
       - ./logs:/app/logs
     depends_on:
-      redis:
+      app-redis:
         condition: service_healthy
     networks:
       - default
@@ -32,7 +34,7 @@ services:
       - "127.0.0.1:3000:3000"
     restart: always
 
-  redis:
+  app-redis:
     image: redis:7-alpine
     restart: always
     healthcheck:
