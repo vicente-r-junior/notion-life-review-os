@@ -139,8 +139,49 @@ async def run_notion_writer(payload: dict) -> str:
             warnings.append(f"Learning: {str(e)[:50]}")
         await asyncio.sleep(0.4)
 
+    # 5. Updates to existing records
+    counts["updates"] = 0
+    for update in payload.get("updates", []):
+        name = update.get("name", "")
+        status = update.get("status", "")
+        record_type = update.get("type", "task")
+        if not name or not status:
+            continue
+        try:
+            search_raw = await mcp_client.call_tool("API-post-search", {"query": name})
+            content = search_raw.get("content", [{}])[0].get("text", "{}")
+            search_data = json.loads(content)
+            page_id = None
+            db_id = settings.NOTION_DB_TASKS if record_type == "task" else settings.NOTION_DB_PROJECTS
+            for result in search_data.get("results", []):
+                if result.get("object") != "page":
+                    continue
+                parent_db = result.get("parent", {}).get("database_id", "").replace("-", "")
+                if parent_db != db_id.replace("-", ""):
+                    continue
+                title_list = result.get("properties", {}).get("Name", {}).get("title", [])
+                if title_list:
+                    page_name = title_list[0].get("text", {}).get("content", "")
+                    if _similar(name, page_name):
+                        page_id = result["id"]
+                        break
+            if not page_id:
+                warnings.append(f"'{name}' not found in Notion")
+                continue
+            await mcp_client.call_tool("API-patch-page", {
+                "page_id": page_id,
+                "properties": {"Status": {"select": {"name": status}}},
+            })
+            counts["updates"] += 1
+            logger.info("notion_record_updated", name=name, status=status)
+        except Exception as e:
+            logger.error("notion_update_failed", name=name, error=str(e))
+            warnings.append(f"Update '{name}': {str(e)[:50]}")
+        await asyncio.sleep(0.4)
+
     daily_str = "✅ Daily log · " if counts["daily_log"] else ""
-    result = f"Saved! {daily_str}{counts['tasks']} tasks · {counts['projects']} projects · {counts['learnings']} learnings"
+    update_str = f" · {counts['updates']} updated" if counts["updates"] else ""
+    result = f"Saved! {daily_str}{counts['tasks']} tasks · {counts['projects']} projects · {counts['learnings']} learnings{update_str}"
     if warnings:
         result += " | ⚠️ " + ", ".join(warnings[:3])
     return result
