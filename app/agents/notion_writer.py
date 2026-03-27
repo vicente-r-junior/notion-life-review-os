@@ -168,7 +168,9 @@ async def run_notion_writer(payload: dict) -> str:
 
     # 5. Updates to existing records
     counts["updates"] = 0
-    for update in payload.get("updates", []):
+    raw_updates = payload.get("updates", [])
+    logger.info("updates_received", count=len(raw_updates), updates=str(raw_updates)[:200])
+    for update in raw_updates:
         name = update.get("name", "")
         table = update.get("table", "tasks")
         field_name = update.get("field", "")
