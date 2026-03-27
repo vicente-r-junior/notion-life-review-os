@@ -91,7 +91,20 @@ async def handle_webhook(payload: dict):
     masked = mask_phone(phone)
     logger.info("webhook_received", phone=masked, msg_id=msg_id)
 
-    # 1. Check if paused
+    # 1. Onboarding — first time this phone contacts the system
+    if not redis_client.get(f"onboarded:{phone}"):
+        redis_client.setex(f"onboarded:{phone}", 86400 * 365, "1")
+        logger.info("onboarding_triggered", phone=masked)
+        await send_message(phone,
+            "Hey! 👋 I'm your personal Notion assistant.\n\n"
+            "I can help you with two things:\n"
+            "📝 *Daily log* — capture tasks, projects, learnings and mood just by chatting\n"
+            "📊 *Weekly review* — automatic summary sent to your Notion every week\n\n"
+            "Try it: 'Worked on Project X today, need to deploy by Friday!'"
+        )
+        return
+
+    # 2. Check if paused
     if redis_client.get(f"paused:{phone}"):
         text = extract_text(payload)
         if text and text.strip().lower() == "*resume*":
