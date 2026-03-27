@@ -70,7 +70,7 @@ async def handle_webhook(payload: dict):
     msg_id_raw = payload.get("data", {}).get("key", {}).get("id", "")
     from_me_raw = payload.get("data", {}).get("key", {}).get("fromMe", False)
     phone_raw = extract_phone(payload)
-    logger.info("webhook_all", event=event or "none", msg_id=msg_id_raw[:8] if msg_id_raw else "none", from_me=from_me_raw, phone=mask_phone(phone_raw) if phone_raw else "none")
+    logger.info("webhook_all", evt=event or "none", msg_id=msg_id_raw[:8] if msg_id_raw else "none", from_me=from_me_raw, phone=mask_phone(phone_raw) if phone_raw else "none")
 
     if event not in ("messages.upsert", "message.new", ""):
         return
