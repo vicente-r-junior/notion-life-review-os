@@ -125,6 +125,10 @@ async def run_notion_writer(payload: dict) -> str:
     await asyncio.sleep(0.4)
 
     # 3. Tasks
+    _NATIVE_TASK_KEYS = {"title", "project", "due_date", "status"}
+    task_schema = get_schema("tasks")
+    task_fields = task_schema.get("fields", {})
+
     for task in payload.get("tasks", []):
         try:
             props = {
@@ -135,6 +139,22 @@ async def run_notion_writer(payload: dict) -> str:
             }
             if task.get("due_date"):
                 props["Due Date"] = {"date": {"start": task["due_date"]}}
+
+            # Write any custom fields present in task dict using schema type
+            for key, val in task.items():
+                if key.lower() in _NATIVE_TASK_KEYS or not val:
+                    continue
+                # Find matching field in schema (case-insensitive)
+                field_key = None
+                for k in task_fields:
+                    if k.lower() == key.lower():
+                        field_key = k
+                        break
+                if field_key:
+                    ftype = task_fields[field_key].get("type", "rich_text")
+                    props[field_key] = _format_property(ftype, str(val))
+                    logger.info("notion_task_custom_field", field=field_key, value=str(val)[:40])
+
             await mcp_client.call_tool("API-post-page", {
                 "parent": {"database_id": settings.NOTION_DB_TASKS},
                 "properties": props,

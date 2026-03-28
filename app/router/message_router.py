@@ -83,22 +83,10 @@ async def process_log(phone: str, text: str):
             user_message = parts[0].strip()
             payload_raw = parts[1].strip()
 
-            # Extract exactly the JSON object using brace counting
-            brace_count = 0
-            json_end = 0
-            for i, ch in enumerate(payload_raw):
-                if ch == '{':
-                    brace_count += 1
-                elif ch == '}':
-                    brace_count -= 1
-                    if brace_count == 0:
-                        json_end = i + 1
-                        break
-
-            payload_str = payload_raw[:json_end] if json_end > 0 else payload_raw
-
             try:
-                payload = json.loads(payload_str)
+                # Use raw_decode: handles braces inside string values correctly
+                decoder = json.JSONDecoder()
+                payload, _ = decoder.raw_decode(payload_raw)
                 session = {
                     "state": "waiting_confirmation",
                     "payload": payload,

@@ -87,7 +87,9 @@ Rules for formatting:
 - Use · (middle dot) as separator between fields on the same line
 - Keep it compact — one line per item
 
-SAVE_PAYLOAD: {"mood":5,"energy":"high","tags":["work"],"summary":"...","tasks":[{"title":"...","project":"...","due_date":"YYYY-MM-DD"}],"project_updates":[{"name":"...","progress_note":"..."}],"learnings":[],"updates":[{"table":"tasks","name":"...","field":"Status","value":"In Progress"}]}
+SAVE_PAYLOAD: {"mood":5,"energy":"high","tags":["work"],"summary":"...","tasks":[{"title":"...","project":"...","due_date":"YYYY-MM-DD","Who":"Vicente"}],"project_updates":[{"name":"...","progress_note":"..."}],"learnings":[],"updates":[{"table":"tasks","name":"...","field":"Status","value":"In Progress"}]}
+
+Note: custom required fields (e.g. Who) go INSIDE the task object, not in updates[].
 
 ## ⚠️ CRITICAL RULE — SAVE_PAYLOAD
 

@@ -179,7 +179,21 @@ async def add_to_aggregation_buffer(phone: str, text: str):
 
 
 
+_FAST_CONFIRM = {"confirm", "yes", "y", "ok", "okay", "sure", "yep", "👍", "sim", "s",
+                 "all set", "go ahead", "save", "save it", "do it", "perfect", "great",
+                 "sounds good", "confirmed", "deal", "let's go", "lets go", "yep", "yeah"}
+_FAST_CANCEL = {"cancel", "no", "nope", "n", "skip", "abort", "forget it", "don't save",
+                "dont save", "nah", "não", "nao", "stop", "discard", "never mind", "nevermind"}
+
+
 async def detect_confirmation_intent(text: str) -> str:
+    normalized = text.strip().lower()
+    if normalized in _FAST_CONFIRM:
+        return "confirm"
+    if normalized in _FAST_CANCEL:
+        return "cancel"
+
+    # LLM fallback only for ambiguous phrases
     client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
     response = await client.chat.completions.create(
         model="gpt-4o-mini",
