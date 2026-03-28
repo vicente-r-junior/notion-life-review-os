@@ -48,8 +48,8 @@ async def transcribe(message_id: str) -> str:
     audio_bytes, mimetype = await download_audio_via_evolution(message_id)
     ext = _ext_from_mimetype(mimetype)
 
-    transcript = await openai_client.audio.transcriptions.create(
-        model=settings.WHISPER_MODEL,
-        file=(f"audio.{ext}", audio_bytes, mimetype),
-    )
+    kwargs = {"model": settings.WHISPER_MODEL, "file": (f"audio.{ext}", audio_bytes, mimetype)}
+    if settings.WHISPER_LANGUAGE:
+        kwargs["language"] = settings.WHISPER_LANGUAGE
+    transcript = await openai_client.audio.transcriptions.create(**kwargs)
     return transcript.text

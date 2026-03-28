@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = ""
     OPENAI_MODEL: str = "gpt-4o"
     WHISPER_MODEL: str = "whisper-1"
+    WHISPER_LANGUAGE: str = ""  # empty = auto-detect; "en", "pt", etc. to force
 
     # Notion
     NOTION_API_KEY: str = ""
