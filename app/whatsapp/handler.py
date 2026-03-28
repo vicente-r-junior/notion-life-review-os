@@ -53,7 +53,7 @@ def extract_audio(payload: dict) -> dict | None:
     message = payload.get("data", {}).get("message", {})
     if "audioMessage" in message:
         return {
-            "url": message["audioMessage"].get("url"),
+            "message_id": payload.get("data", {}).get("key", {}).get("id", ""),
             "mimetype": message["audioMessage"].get("mimetype", "audio/ogg"),
             "seconds": message["audioMessage"].get("seconds", 0),
         }
@@ -110,7 +110,7 @@ async def handle_webhook(payload: dict):
     if audio:
         await send_message(phone, "🎙️ Give me a sec...")
         try:
-            text = await transcribe(audio["url"], audio["mimetype"])
+            text = await transcribe(audio["message_id"])
             text = f"[Voice message]: {text}"
             logger.info("audio_transcribed", phone=masked, seconds=audio["seconds"])
         except Exception as e:
