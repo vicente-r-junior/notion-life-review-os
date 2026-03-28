@@ -179,35 +179,36 @@ async def add_to_aggregation_buffer(phone: str, text: str):
 
 
 
-_FAST_CONFIRM = {"confirm", "yes", "y", "ok", "okay", "sure", "yep", "👍", "sim", "s",
-                 "all set", "go ahead", "save", "save it", "do it", "perfect", "great",
-                 "sounds good", "confirmed", "deal", "let's go", "lets go", "yep", "yeah"}
-_FAST_CANCEL = {"cancel", "no", "nope", "n", "skip", "abort", "forget it", "don't save",
-                "dont save", "nah", "não", "nao", "stop", "discard", "never mind", "nevermind"}
+_FAST_CONFIRM = {"confirm", "yes", "y", "ok", "okay", "sure", "yep", "yeah", "👍",
+                 "sim", "s", "claro", "pode", "vai"}
+_FAST_CANCEL = {"cancel", "no", "nope", "n", "skip", "abort", "não", "nao", "nah"}
+
+_CONFIRM_SYSTEM = (
+    "You are an intent classifier. The user was just asked a yes/no question "
+    "(e.g. 'confirm?', 'is this required?', 'proceed?').\n"
+    "Classify their reply as exactly one word: confirm, cancel, or continue.\n\n"
+    "confirm = user agrees / wants to proceed (yes, sure, go ahead, looks good, "
+    "perfect, yep, yeah, 👍, claro, com certeza, can do, absolutely, do it, etc.)\n"
+    "cancel = user disagrees / wants to stop (no, nope, cancel, skip, forget it, "
+    "don't, nah, não, abort, discard, etc.)\n"
+    "continue = user is adding info, asking a question, or the intent is truly unclear\n\n"
+    "Reply with ONLY one word."
+)
 
 
 async def detect_confirmation_intent(text: str) -> str:
-    normalized = text.strip().lower()
+    normalized = text.strip().lower().rstrip(".!?,")
     if normalized in _FAST_CONFIRM:
         return "confirm"
     if normalized in _FAST_CANCEL:
         return "cancel"
 
-    # LLM fallback only for ambiguous phrases
-    client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
-    response = await client.chat.completions.create(
+    # LLM for anything not in the fast-path
+    llm = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+    response = await llm.chat.completions.create(
         model="gpt-4o-mini",
         messages=[
-            {"role": "system", "content": (
-                "Classify intent as exactly one word: confirm, cancel, or continue.\n"
-                "confirm = user wants to save/proceed (ok, okay, yes, sure, all set, "
-                "deal, looks good, save it, let's go, go ahead, yep, 👍, perfect, done, "
-                "great, sounds good, confirmed, etc.)\n"
-                "cancel = user wants to discard (no, cancel, skip, forget it, nope, "
-                "don't save, abort, etc.)\n"
-                "continue = user is adding info, correcting, or asking something\n"
-                "Reply with ONLY one word."
-            )},
+            {"role": "system", "content": _CONFIRM_SYSTEM},
             {"role": "user", "content": text},
         ],
         temperature=0,
@@ -425,21 +426,16 @@ async def handle_session_reply(phone: str, text: str, session: dict):
         await send_message(phone, "Should this be a required field? (yes / no)")
 
     elif state == "waiting_column_required":
-        _normalized = text.lower().strip().rstrip(".!?,")
-        required = _normalized in {
-            "yes", "y", "sim", "s", "true", "1", "yep", "yeah", "sure", "ok",
-            "of course", "definitely", "required", "obrigatorio", "obrigatório",
-            "claro", "com certeza", "affirmative", "yup", "absolutely",
-        }
-        session["payload"]["required"] = required
+        intent = await detect_confirmation_intent(text)
+        if intent == "continue":
+            await send_message(phone, "Is it required? Just say yes or no.")
+            return
+        session["payload"]["required"] = (intent == "confirm")
         col_name = session["payload"].get("column_name", "field")
         col_db = session["payload"].get("chosen_db", "")
         type_num = session["payload"].get("column_type_num", "1")
-        type_label = {
-            "1": "text", "2": "number", "3": "select", "4": "multi-select",
-            "5": "date", "6": "checkbox", "7": "url", "8": "email",
-        }.get(type_num, "text")
-        req_label = "required" if required else "optional"
+        type_label = _TYPE_LABEL.get(type_num, "text")
+        req_label = "required" if session["payload"]["required"] else "optional"
         session["state"] = "waiting_column_confirm"
         redis_client.setex(f"session:{phone}", settings.SESSION_TTL, json.dumps(session))
         await send_message(phone, f"Adding *{col_name}* ({type_label}, {req_label}) to *{col_db}* — confirm?")
@@ -457,33 +453,29 @@ async def handle_session_reply(phone: str, text: str, session: dict):
         await _execute_bulk_query_and_confirm(phone, table, field, text.strip(), filter_info, today)
 
     elif state == "waiting_bulk_confirm":
-        _normalized = text.lower().strip().rstrip(".!?,")
-        confirmed = _normalized in {
-            "yes", "y", "sim", "s", "confirm", "ok", "sure", "yep", "👍",
-            "yeah", "yup", "claro", "pode", "vai", "go", "do it", "confirmed",
-        }
-        if confirmed:
-            redis_client.delete(f"session:{phone}")
+        intent = await detect_confirmation_intent(text)
+        if intent == "continue":
+            await send_message(phone, "Just say confirm or cancel.")
+            return
+        redis_client.delete(f"session:{phone}")
+        if intent == "confirm":
             updates = payload.get("updates", [])
             await send_message(phone, f"Updating {len(updates)} record(s)... 🗂️")
             from app.agents.notion_writer import run_notion_writer
             result = await run_notion_writer({"updates": updates, "tasks": [], "learnings": [], "project_updates": []})
             await send_message(phone, result)
         else:
-            redis_client.delete(f"session:{phone}")
             await send_message(phone, "No problem, nothing changed!")
 
     elif state == "waiting_column_confirm":
-        _normalized = text.lower().strip().rstrip(".!?,")
-        confirmed = _normalized in {
-            "yes", "y", "sim", "s", "confirm", "ok", "sure", "yep", "👍",
-            "yeah", "yup", "claro", "pode", "vai", "go", "do it", "confirmed",
-        }
-        if confirmed:
-            redis_client.delete(f"session:{phone}")
+        intent = await detect_confirmation_intent(text)
+        if intent == "continue":
+            await send_message(phone, "Just say confirm or cancel.")
+            return
+        redis_client.delete(f"session:{phone}")
+        if intent == "confirm":
             await add_column_to_notion(phone, session["payload"])
         else:
-            redis_client.delete(f"session:{phone}")
             await send_message(phone, "No problem, nothing changed!")
 
 
