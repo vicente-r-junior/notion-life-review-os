@@ -425,7 +425,12 @@ async def handle_session_reply(phone: str, text: str, session: dict):
         await send_message(phone, "Should this be a required field? (yes / no)")
 
     elif state == "waiting_column_required":
-        required = text.lower() in ("yes", "y", "sim", "s", "true", "1")
+        _normalized = text.lower().strip().rstrip(".!?,")
+        required = _normalized in {
+            "yes", "y", "sim", "s", "true", "1", "yep", "yeah", "sure", "ok",
+            "of course", "definitely", "required", "obrigatorio", "obrigatório",
+            "claro", "com certeza", "affirmative", "yup", "absolutely",
+        }
         session["payload"]["required"] = required
         col_name = session["payload"].get("column_name", "field")
         col_db = session["payload"].get("chosen_db", "")
@@ -452,7 +457,11 @@ async def handle_session_reply(phone: str, text: str, session: dict):
         await _execute_bulk_query_and_confirm(phone, table, field, text.strip(), filter_info, today)
 
     elif state == "waiting_bulk_confirm":
-        confirmed = text.lower() in ("yes", "y", "sim", "s", "confirm", "ok", "sure", "yep", "👍")
+        _normalized = text.lower().strip().rstrip(".!?,")
+        confirmed = _normalized in {
+            "yes", "y", "sim", "s", "confirm", "ok", "sure", "yep", "👍",
+            "yeah", "yup", "claro", "pode", "vai", "go", "do it", "confirmed",
+        }
         if confirmed:
             redis_client.delete(f"session:{phone}")
             updates = payload.get("updates", [])
