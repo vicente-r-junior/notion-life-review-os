@@ -49,8 +49,12 @@ async def process_log(phone: str, text: str):
         history = get_history(phone)
         today = datetime.now(ZoneInfo(settings.TIMEZONE)).strftime("%Y-%m-%d")
 
-        prompt_path = Path("prompts/conversational_agent.md")
-        system_prompt = prompt_path.read_text().replace("{today}", today)
+        from app.session.prompt_builder import get_system_prompt
+        system_prompt = (
+            get_system_prompt()
+            .replace("{today}", today)
+            .replace("{today[:4]}", today[:4])
+        )
 
         messages = [{"role": "system", "content": system_prompt}]
         messages.extend(history[:-1])

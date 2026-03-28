@@ -72,6 +72,15 @@ async def _fetch_schema_for_db(db_name: str, database_id: str) -> dict:
     return {"data_source_id": data_source_id, "fields": fields}
 
 
+async def _rebuild_prompt():
+    """Rebuild the rendered system prompt after schema changes."""
+    try:
+        from app.session.prompt_builder import render_system_prompt
+        render_system_prompt()
+    except Exception as e:
+        logger.warning("prompt_rebuild_failed", error=str(e))
+
+
 async def bootstrap_schemas():
     for db_name, database_id in DATABASE_MAP.items():
         if not database_id:
@@ -98,6 +107,8 @@ async def bootstrap_schemas():
         except Exception as e:
             logger.error("schema_bootstrap_failed", db=db_name, error=str(e))
 
+    await _rebuild_prompt()
+
 
 def get_schema(db_name: str) -> dict:
     raw = redis_client.get(f"schema:{db_name}")
@@ -120,6 +131,8 @@ def mark_field_required(db_name: str, field_name: str, required: bool):
 async def refresh_schemas():
     for db_name in DATABASE_MAP:
         redis_client.delete(f"schema:{db_name}")
+    from app.session.prompt_builder import invalidate_system_prompt
+    invalidate_system_prompt()
     await bootstrap_schemas()
 
 
