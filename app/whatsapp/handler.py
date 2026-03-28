@@ -240,6 +240,13 @@ _DB_ALIAS_MAP = {
 }
 
 
+def _has_options(payload: dict) -> bool:
+    col_type = payload.get("column_type", {})
+    type_num = payload.get("column_type_num")
+    type_key = "select" if type_num == "3" else "multi_select"
+    return bool(col_type.get(type_key, {}).get("options"))
+
+
 async def _advance_column_flow(phone: str, session: dict):
     """Determine what's still missing and ask for it, or show confirmation summary."""
     payload = session["payload"]
@@ -265,6 +272,11 @@ async def _advance_column_flow(phone: str, session: dict):
         session["state"] = "waiting_column_type"
         redis_client.setex(f"session:{phone}", settings.SESSION_TTL, json.dumps(session))
         await send_message(phone, f"What type should *{col_name}* be? text, number, select, date, checkbox, url or email")
+    elif type_num in ("3", "4") and not _has_options(payload):
+        session["state"] = "waiting_column_options"
+        redis_client.setex(f"session:{phone}", settings.SESSION_TTL, json.dumps(session))
+        type_label = _TYPE_LABEL.get(type_num, "select")
+        await send_message(phone, f"What options should *{col_name}* have? List them separated by commas.")
     elif required is None:
         session["state"] = "waiting_column_required"
         redis_client.setex(f"session:{phone}", settings.SESSION_TTL, json.dumps(session))
@@ -307,11 +319,22 @@ async def _reparse_column_flow(phone: str, text: str, session: dict):
         col_type_str = info["column_type"].lower().replace("_", " ")
         type_num = _TEXT_TO_NUM.get(col_type_str)
         if type_num:
-            payload["column_type"] = COLUMN_TYPE_MAP[type_num]
+            col_type_def = dict(COLUMN_TYPE_MAP[type_num])
+            # Embed options if already provided
+            if info.get("options") and type_num in ("3", "4"):
+                type_key = "select" if type_num == "3" else "multi_select"
+                col_type_def[type_key] = {"options": [{"name": o} for o in info["options"]]}
+            payload["column_type"] = col_type_def
             payload["column_type_num"] = type_num
+    elif info.get("options") and payload.get("column_type_num") in ("3", "4"):
+        # Type already known, just update options
+        type_key = "select" if payload["column_type_num"] == "3" else "multi_select"
+        col_type_def = dict(payload.get("column_type", COLUMN_TYPE_MAP[payload["column_type_num"]]))
+        col_type_def[type_key] = {"options": [{"name": o} for o in info["options"]]}
+        payload["column_type"] = col_type_def
     if info.get("required") is not None:
         payload["required"] = bool(info["required"])
-        payload.pop("required_prefill", None)  # clear stale prefill if explicit value arrives
+        payload.pop("required_prefill", None)
 
     session["payload"] = payload
     await _advance_column_flow(phone, session)
