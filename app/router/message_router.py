@@ -362,62 +362,34 @@ async def _handle_add_column_intent(phone: str, text: str):
     if column_type_str:
         type_num = _TYPE_ALIASES.get(column_type_str.replace("_", " "))
 
-    db_names = ["daily_logs", "tasks", "projects", "learnings", "weekly_reports"]
-    from app.whatsapp.handler import COLUMN_TYPE_MAP
+    from app.whatsapp.handler import COLUMN_TYPE_MAP, _advance_column_flow
 
-    # If we have everything, show confirmation summary
-    if db and column_name and type_num:
-        column_type = dict(COLUMN_TYPE_MAP[type_num])
-        # Embed options if already provided (e.g. select with Vicente and Lilian)
-        options = info.get("options")
+    # Build payload with EVERYTHING extracted — never drop fields
+    options = info.get("options")
+    payload: dict = {}
+
+    if db:
+        payload["chosen_db"] = db
+    if column_name:
+        payload["column_name"] = column_name
+    if type_num:
+        col_type = dict(COLUMN_TYPE_MAP[type_num])
         if options and type_num in ("3", "4"):
             type_key = "select" if type_num == "3" else "multi_select"
-            column_type[type_key] = {"options": [{"name": str(o)} for o in options]}
-        req_label = "required" if required else "optional"
-        type_display = column_type_str
-        if options and type_num in ("3", "4"):
-            type_display = f"{column_type_str}[{', '.join(str(o) for o in options)}]"
-        payload = {
-            "chosen_db": db,
-            "column_name": column_name,
-            "column_type": column_type,
-            "column_type_num": type_num,
-            "required": bool(required),
-        }
-        session = {"state": "waiting_column_confirm", "payload": payload, "created_at": time.time()}
-        redis_client.setex(f"session:{phone}", settings.SESSION_TTL, json.dumps(session))
-        await sender.send_message(
-            phone,
-            f"Adding *{column_name}* ({type_display}, {req_label}) to *{db}* — confirm?"
-        )
+            col_type[type_key] = {"options": [{"name": str(o)} for o in options]}
+        payload["column_type"] = col_type
+        payload["column_type_num"] = type_num
+    if required is not None:
+        payload["required"] = bool(required)
+
+    if not payload:
+        await start_add_column_flow(phone)
         return
 
-    # If we have db + name but no type, ask only for type
-    if db and column_name:
-        payload = {"chosen_db": db, "column_name": column_name}
-        if required is not None:
-            payload["required_prefill"] = bool(required)
-        session = {"state": "waiting_column_type", "payload": payload, "created_at": time.time()}
-        redis_client.setex(f"session:{phone}", settings.SESSION_TTL, json.dumps(session))
-        await sender.send_message(phone, f"What type should *{column_name}* be? text, number, select, date, checkbox, url or email")
-        return
-
-    # If we have name but no db, ask for db
-    if column_name:
-        payload = {"column_name": column_name}
-        if required is not None:
-            payload["required_prefill"] = bool(required)
-        session = {"state": "waiting_column_db", "payload": payload, "created_at": time.time()}
-        redis_client.setex(f"session:{phone}", settings.SESSION_TTL, json.dumps(session))
-        await sender.send_message(
-            phone,
-            f"Which database for *{column_name}*?\n"
-            "1. daily_logs  2. tasks  3. projects\n4. learnings  5. weekly_reports"
-        )
-        return
-
-    # Fallback: ask everything from scratch
-    await start_add_column_flow(phone)
+    # Let _advance_column_flow ask only for what's truly missing
+    session = {"state": "waiting_column_db", "payload": payload, "created_at": time.time()}
+    redis_client.setex(f"session:{phone}", settings.SESSION_TTL, json.dumps(session))
+    await _advance_column_flow(phone, session)
 
 
 async def start_add_column_flow(phone: str):
