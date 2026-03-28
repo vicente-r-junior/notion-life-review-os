@@ -108,7 +108,6 @@ async def handle_webhook(payload: dict):
     #    so that ACKs and delivery receipts (no content) are dropped first
     audio = extract_audio(payload)
     if audio:
-        await send_message(phone, "🎙️ Give me a sec...")
         try:
             raw_text = await transcribe(audio["message_id"])
             await send_message(phone, f"🎙️ _{raw_text}_")
@@ -387,7 +386,7 @@ async def handle_session_reply(phone: str, text: str, session: dict):
         await _reparse_column_flow(phone, text, session)
 
     elif state == "waiting_column_type":
-        type_num = _TEXT_TO_NUM.get(text.lower().strip(), text.strip())
+        type_num = _TEXT_TO_NUM.get(text.lower().strip().rstrip(".!?,"), text.strip().rstrip(".!?,"))
         if type_num in COLUMN_TYPE_MAP:
             session["payload"]["column_type"] = COLUMN_TYPE_MAP[type_num]
             session["payload"]["column_type_num"] = type_num
