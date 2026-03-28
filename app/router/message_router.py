@@ -374,6 +374,9 @@ async def _handle_add_column_intent(phone: str, text: str):
             type_key = "select" if type_num == "3" else "multi_select"
             column_type[type_key] = {"options": [{"name": str(o)} for o in options]}
         req_label = "required" if required else "optional"
+        type_display = column_type_str
+        if options and type_num in ("3", "4"):
+            type_display = f"{column_type_str}[{', '.join(str(o) for o in options)}]"
         payload = {
             "chosen_db": db,
             "column_name": column_name,
@@ -385,7 +388,7 @@ async def _handle_add_column_intent(phone: str, text: str):
         redis_client.setex(f"session:{phone}", settings.SESSION_TTL, json.dumps(session))
         await sender.send_message(
             phone,
-            f"Adding *{column_name}* ({column_type_str}, {req_label}) to *{db}* — confirm?"
+            f"Adding *{column_name}* ({type_display}, {req_label}) to *{db}* — confirm?"
         )
         return
 

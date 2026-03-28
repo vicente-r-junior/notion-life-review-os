@@ -283,6 +283,10 @@ async def _advance_column_flow(phone: str, session: dict):
         await send_message(phone, f"Should *{col_name}* be a required field?")
     else:
         type_label = _TYPE_LABEL.get(type_num, "text")
+        if type_num in ("3", "4") and _has_options(payload):
+            type_key = "select" if type_num == "3" else "multi_select"
+            opts = [o["name"] for o in payload["column_type"].get(type_key, {}).get("options", [])]
+            type_label = f"{type_label}[{', '.join(opts)}]"
         req_label = "required" if required else "optional"
         session["state"] = "waiting_column_confirm"
         redis_client.setex(f"session:{phone}", settings.SESSION_TTL, json.dumps(session))
