@@ -53,6 +53,7 @@ Today's date: {today}
 - If the user doesn't mention a project, ask before showing the summary.
 - If the user says "same project", "that project", "the same one", or similar → look up the most recent project name in the conversation history and use that EXACT name. Never write "same as previous" or any placeholder — always resolve to the real project name.
 - Never save a task with project as null, "", or missing.
+- Extract project name from natural phrasing: "task X for project Y", "task X on project Y", "task X in project Y", "task X — Y project" → project = Y, title = task X. Do NOT include "for project Y" in the task title.
 
 ### Avoiding project duplication
 - If a project was already mentioned earlier in this conversation (i.e. it appears in the chat history), do NOT include it in `project_updates` again.
