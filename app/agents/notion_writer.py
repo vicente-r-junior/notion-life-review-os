@@ -213,24 +213,25 @@ async def run_notion_writer(payload: dict) -> str:
             field_type = fields[field_key]["type"] if field_key else "rich_text"
             notion_value = _format_property(field_type, str(value))
 
-            # Find the page in the correct database
-            db_id = DATABASE_MAP.get(table, "")
-            search_raw = await mcp_client.call_tool("API-post-search", {"query": name})
-            content = search_raw.get("content", [{}])[0].get("text", "{}")
-            search_data = json.loads(content)
-            page_id = None
-            for result in search_data.get("results", []):
-                if result.get("object") != "page":
-                    continue
-                parent_db = result.get("parent", {}).get("database_id", "").replace("-", "")
-                if db_id and parent_db != db_id.replace("-", ""):
-                    continue
-                title_list = result.get("properties", {}).get("Name", {}).get("title", [])
-                if title_list:
-                    page_name = title_list[0].get("text", {}).get("content", "")
-                    if _similar(name, page_name):
-                        page_id = result["id"]
-                        break
+            # Use page_id directly if provided (bulk update), otherwise search by name
+            page_id = update.get("page_id")
+            if not page_id:
+                db_id = DATABASE_MAP.get(table, "")
+                search_raw = await mcp_client.call_tool("API-post-search", {"query": name})
+                content = search_raw.get("content", [{}])[0].get("text", "{}")
+                search_data = json.loads(content)
+                for result in search_data.get("results", []):
+                    if result.get("object") != "page":
+                        continue
+                    parent_db = result.get("parent", {}).get("database_id", "").replace("-", "")
+                    if db_id and parent_db != db_id.replace("-", ""):
+                        continue
+                    title_list = result.get("properties", {}).get("Name", {}).get("title", [])
+                    if title_list:
+                        page_name = title_list[0].get("text", {}).get("content", "")
+                        if _similar(name, page_name):
+                            page_id = result["id"]
+                            break
 
             if not page_id:
                 warnings.append(f"'{name}' not found in Notion")

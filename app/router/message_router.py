@@ -32,8 +32,8 @@ async def process_log(phone: str, text: str):
             await handle_session_reply(phone, text, session)
             return
 
-        # For query/add_column: clear any stale session and proceed with fresh intent
-        if session_raw and intent in ("query", "add_column"):
+        # For query/add_column/bulk_update: clear any stale session and proceed with fresh intent
+        if session_raw and intent in ("query", "add_column", "bulk_update"):
             redis_client.delete(f"session:{phone}")
 
         if intent == "query":
@@ -48,6 +48,11 @@ async def process_log(phone: str, text: str):
         if intent == "add_column":
             logger.info("routing_to_add_column", phone=mask_phone(phone))
             await _handle_add_column_intent(phone, text)
+            return
+
+        if intent == "bulk_update":
+            logger.info("routing_to_bulk_update", phone=mask_phone(phone))
+            await _handle_bulk_update_intent(phone, text)
             return
 
         append_history(phone, "user", text)
@@ -120,6 +125,165 @@ async def process_log(phone: str, text: str):
     except Exception as e:
         logger.error("process_log_failed", error=str(e), phone=mask_phone(phone))
         await sender.send_message(phone, "Something went wrong, sorry! Try again 😅")
+
+
+_BULK_EXTRACT_SYSTEM = """Extract bulk update details from the user message. Reply with JSON only.
+Fields:
+  table: one of tasks, projects, daily_logs, learnings, weekly_reports — or null
+  field: the Notion field name to update (e.g. "Who", "Status", "Due Date") — or null
+  value: the new value to set — or null
+  filter: object describing which records to update. Can include:
+    - status: e.g. "Todo", "In Progress", "Done" (null = all statuses)
+    - due_today: true if user says "due today" or "for today"
+    - field_empty: field name that must be empty/blank (e.g. "Who")
+    - all: true if user says "all records" with no other filter
+
+Examples:
+  "update all tasks Who to Vicente" → {"table":"tasks","field":"Who","value":"Vicente","filter":{"all":true}}
+  "set Who = me on all open tasks" → {"table":"tasks","field":"Who","value":"me","filter":{"status":"Todo"}}
+  "update all tasks due today to In Progress" → {"table":"tasks","field":"Status","value":"In Progress","filter":{"due_today":true}}
+  "fill Who for tasks where Who is empty" → {"table":"tasks","field":"Who","value":null,"filter":{"field_empty":"Who"}}
+
+If a field is not mentioned, use null."""
+
+
+async def _handle_bulk_update_intent(phone: str, text: str):
+    from app.notion.mcp_client import mcp_client
+    from app.schema.schema_manager import get_schema, DATABASE_MAP
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    today = datetime.now(ZoneInfo(settings.TIMEZONE)).strftime("%Y-%m-%d")
+
+    # Step 1: extract intent
+    try:
+        resp = await client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": _BULK_EXTRACT_SYSTEM},
+                {"role": "user", "content": text},
+            ],
+            temperature=0,
+            max_tokens=150,
+            response_format={"type": "json_object"},
+        )
+        info = json.loads(resp.choices[0].message.content)
+    except Exception as e:
+        logger.error("bulk_update_extract_failed", error=str(e))
+        await sender.send_message(phone, "Couldn't parse that — try being more specific, e.g. 'update all tasks Who to Vicente'")
+        return
+
+    table = info.get("table", "tasks")
+    field = info.get("field")
+    value = info.get("value")
+    filter_info = info.get("filter", {})
+
+    if not field:
+        await sender.send_message(phone, "Which field would you like to update?")
+        return
+
+    # Ask for value if missing
+    if value is None:
+        session = {
+            "state": "waiting_bulk_value",
+            "payload": {"table": table, "field": field, "filter": filter_info},
+            "created_at": time.time(),
+        }
+        redis_client.setex(f"session:{phone}", settings.SESSION_TTL, json.dumps(session))
+        await sender.send_message(phone, f"What value should *{field}* be set to?")
+        return
+
+    await _execute_bulk_query_and_confirm(phone, table, field, value, filter_info, today)
+
+
+async def _execute_bulk_query_and_confirm(phone: str, table: str, field: str, value: str, filter_info: dict, today: str):
+    from app.notion.mcp_client import mcp_client
+    from app.schema.schema_manager import get_schema, DATABASE_MAP
+
+    schema = get_schema(table)
+    data_source_id = schema.get("data_source_id", "")
+    if not data_source_id:
+        await sender.send_message(phone, f"Schema for *{table}* not loaded — try sending *refresh* first.")
+        return
+
+    # Build Notion filter
+    notion_filter = _build_notion_filter(filter_info, field, today)
+
+    # Query the database
+    try:
+        args = {"data_source_id": data_source_id}
+        if notion_filter:
+            args["filter"] = notion_filter
+        raw = await mcp_client.call_tool("API-query-data-source", args)
+        content = raw.get("content", [{}])[0].get("text", "{}")
+        data = json.loads(content)
+    except Exception as e:
+        logger.error("bulk_update_query_failed", error=str(e))
+        await sender.send_message(phone, "Couldn't fetch records from Notion. Try again?")
+        return
+
+    results = data.get("results", [])
+    if not results:
+        await sender.send_message(phone, f"No records found in *{table}* matching your criteria.")
+        return
+
+    # Build updates list with page_id to skip re-search in notion_writer
+    updates = []
+    names = []
+    for page in results:
+        title_list = page.get("properties", {}).get("Name", {}).get("title", [])
+        name = title_list[0].get("text", {}).get("content", "—") if title_list else "—"
+        updates.append({
+            "table": table,
+            "name": name,
+            "page_id": page["id"],
+            "field": field,
+            "value": value,
+        })
+        names.append(name)
+
+    logger.info("bulk_update_records_found", count=len(updates), table=table)
+
+    # Show summary and ask for confirmation
+    lines = [f"*{n}*" for n in names[:10]]
+    if len(names) > 10:
+        lines.append(f"_(+{len(names) - 10} more)_")
+
+    summary = (
+        f"Setting *{field}* → *{value}* on {len(updates)} record(s) in *{table}*:\n"
+        + "\n".join(f"· {l}" for l in lines)
+        + "\n\nConfirm?"
+    )
+
+    session = {
+        "state": "waiting_bulk_confirm",
+        "payload": {"updates": updates, "table": table, "field": field, "value": value},
+        "created_at": time.time(),
+    }
+    redis_client.setex(f"session:{phone}", settings.SESSION_TTL, json.dumps(session))
+    await sender.send_message(phone, summary)
+
+
+def _build_notion_filter(filter_info: dict, field: str, today: str) -> dict | None:
+    if not filter_info or filter_info.get("all"):
+        return None
+
+    conditions = []
+
+    if filter_info.get("due_today"):
+        conditions.append({"property": "Due Date", "date": {"equals": today}})
+
+    if filter_info.get("status"):
+        conditions.append({"property": "Status", "select": {"equals": filter_info["status"]}})
+
+    if filter_info.get("field_empty"):
+        conditions.append({"property": filter_info["field_empty"], "rich_text": {"is_empty": True}})
+
+    if not conditions:
+        return None
+    if len(conditions) == 1:
+        return conditions[0]
+    return {"and": conditions}
 
 
 _DB_ALIASES = {

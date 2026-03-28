@@ -358,6 +358,31 @@ async def handle_session_reply(phone: str, text: str, session: dict):
         redis_client.setex(f"session:{phone}", settings.SESSION_TTL, json.dumps(session))
         await send_message(phone, f"Adding *{col_name}* ({type_label}, {req_label}) to *{col_db}* — confirm?")
 
+    elif state == "waiting_bulk_value":
+        # User provided the value for bulk update
+        table = payload.get("table", "tasks")
+        field = payload.get("field", "")
+        filter_info = payload.get("filter", {})
+        redis_client.delete(f"session:{phone}")
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        today = datetime.now(ZoneInfo(settings.TIMEZONE)).strftime("%Y-%m-%d")
+        from app.router.message_router import _execute_bulk_query_and_confirm
+        await _execute_bulk_query_and_confirm(phone, table, field, text.strip(), filter_info, today)
+
+    elif state == "waiting_bulk_confirm":
+        confirmed = text.lower() in ("yes", "y", "sim", "s", "confirm", "ok", "sure", "yep", "👍")
+        if confirmed:
+            redis_client.delete(f"session:{phone}")
+            updates = payload.get("updates", [])
+            await send_message(phone, f"Updating {len(updates)} record(s)... 🗂️")
+            from app.agents.notion_writer import run_notion_writer
+            result = await run_notion_writer({"updates": updates, "tasks": [], "learnings": [], "project_updates": []})
+            await send_message(phone, result)
+        else:
+            redis_client.delete(f"session:{phone}")
+            await send_message(phone, "No problem, nothing changed!")
+
     elif state == "waiting_column_confirm":
         confirmed = text.lower() in ("yes", "y", "sim", "s", "confirm", "ok", "sure", "yep", "👍")
         if confirmed:
