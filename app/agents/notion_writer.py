@@ -170,6 +170,17 @@ async def run_notion_writer(payload: dict) -> str:
     counts["updates"] = 0
     raw_updates = payload.get("updates", [])
     logger.info("updates_received", count=len(raw_updates), updates=str(raw_updates)[:200])
+
+    # Lazy schema refresh: if any update table schema is missing, bootstrap now
+    if raw_updates:
+        from app.schema.schema_manager import bootstrap_schemas
+        tables_needed = {u.get("table", "tasks") for u in raw_updates}
+        for t in tables_needed:
+            if not get_schema(t).get("fields"):
+                logger.warning("schema_missing_triggering_bootstrap", table=t)
+                await bootstrap_schemas()
+                break
+
     for update in raw_updates:
         name = update.get("name", "")
         table = update.get("table", "tasks")
@@ -195,6 +206,10 @@ async def run_notion_writer(payload: dict) -> str:
                     if _similar(field_name, k):
                         field_key = k
                         break
+            if not fields:
+                logger.warning("schema_missing_for_update", table=table, name=name)
+            if not field_key:
+                logger.warning("field_not_in_schema", table=table, field=field_name, available=list(fields.keys()))
             field_type = fields[field_key]["type"] if field_key else "rich_text"
             notion_value = _format_property(field_type, str(value))
 

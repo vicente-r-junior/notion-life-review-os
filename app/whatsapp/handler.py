@@ -406,9 +406,12 @@ async def add_column_to_notion(phone: str, payload: dict):
             "API-update-a-data-source",
             {"data_source_id": data_source_id, "properties": {column_name: column_type}},
         )
-        await send_message(phone, f"Column *{column_name}* added to *{db_name}*!")
         if payload.get("required"):
             mark_field_required(db_name, column_name, True)
+        # Refresh schema cache so new column is immediately available
+        from app.schema.schema_manager import refresh_schemas
+        await refresh_schemas()
+        await send_message(phone, f"Column *{column_name}* added to *{db_name}*! ✅")
     except Exception as e:
         logger.error("add_column_failed", error=str(e))
         await send_message(phone, f"Failed to add column: {str(e)}")

@@ -27,6 +27,19 @@ async def process_log(phone: str, text: str):
             await handle_session_reply(phone, text, session)
             return
 
+        # Classify intent: query (retrieve from Notion) vs log (capture/update)
+        from app.agents.intent_classifier import classify_intent
+        intent = await classify_intent(text)
+
+        if intent == "query":
+            from app.agents.query_agent import run_query_agent
+            logger.info("routing_to_query_agent", phone=mask_phone(phone))
+            result = await run_query_agent(text)
+            append_history(phone, "user", text)
+            append_history(phone, "assistant", result)
+            await sender.send_message(phone, result)
+            return
+
         append_history(phone, "user", text)
         history = get_history(phone)
         today = datetime.now(ZoneInfo(settings.TIMEZONE)).strftime("%Y-%m-%d")
