@@ -203,9 +203,18 @@ async def detect_confirmation_intent(text: str) -> str:
     return intent if intent in ("confirm", "cancel", "continue") else "continue"
 
 
+_CANCEL_WORDS = {"cancel", "exit", "stop", "ignore", "abort", "quit", "nevermind", "never mind", "forget it", "no thanks", "nope"}
+
+
 async def handle_session_reply(phone: str, text: str, session: dict):
     state = session.get("state")
     payload = session.get("payload", {})
+
+    # Global cancel escape for all non-confirmation states
+    if state not in ("waiting_confirmation",) and text.strip().lower() in _CANCEL_WORDS:
+        redis_client.delete(f"session:{phone}")
+        await send_message(phone, "Got it, no changes made!")
+        return
 
     if state == "waiting_confirmation":
         intent = await detect_confirmation_intent(text)
@@ -251,32 +260,37 @@ async def handle_session_reply(phone: str, text: str, session: dict):
             await send_message(phone, "Please reply with a number.")
 
     elif state == "waiting_column_db":
-        db_names = list(["daily_logs", "tasks", "projects", "learnings", "weekly_reports"])
-        try:
-            idx = int(text.strip()) - 1
-            if 0 <= idx < len(db_names):
-                session["payload"]["chosen_db"] = db_names[idx]
-                session["state"] = "waiting_column_name"
-                redis_client.setex(f"session:{phone}", settings.SESSION_TTL, json.dumps(session))
-                await send_message(phone, "What should the new column be called?")
-            else:
-                await send_message(phone, f"Choose a number 1-{len(db_names)}.")
-        except ValueError:
-            await send_message(phone, "Reply with a number.")
+        db_names = ["daily_logs", "tasks", "projects", "learnings", "weekly_reports"]
+        _db_alias = {
+            "daily logs": "daily_logs", "daily log": "daily_logs",
+            "tasks": "tasks", "task": "tasks",
+            "projects": "projects", "project": "projects",
+            "learnings": "learnings", "learning": "learnings",
+            "weekly reports": "weekly_reports", "weekly report": "weekly_reports",
+        }
+        normalized = text.strip().lower()
+        chosen = _db_alias.get(normalized)
+        if not chosen:
+            try:
+                idx = int(normalized) - 1
+                chosen = db_names[idx] if 0 <= idx < len(db_names) else None
+            except ValueError:
+                pass
+        if chosen:
+            session["payload"]["chosen_db"] = chosen
+            session["state"] = "waiting_column_name"
+            redis_client.setex(f"session:{phone}", settings.SESSION_TTL, json.dumps(session))
+            await send_message(phone, "What should the new column be called?")
+        else:
+            await send_message(phone, "Which one — tasks, projects, daily logs, learnings, or weekly reports?")
 
     elif state == "waiting_column_name":
         session["payload"]["column_name"] = text
         session["state"] = "waiting_column_type"
         redis_client.setex(f"session:{phone}", settings.SESSION_TTL, json.dumps(session))
-        msg = (
-            "What type?\n"
-            "1. Text\n2. Number\n3. Select\n4. Multi-select\n"
-            "5. Date\n6. Checkbox\n7. URL\n8. Email"
-        )
-        await send_message(phone, msg)
+        await send_message(phone, "What type? text, number, select, date, checkbox, url or email")
 
     elif state == "waiting_column_type":
-        # Accept text labels in addition to numbers
         _TEXT_TO_NUM = {
             "text": "1", "rich text": "1", "string": "1",
             "number": "2", "numeric": "2",
@@ -304,9 +318,9 @@ async def handle_session_reply(phone: str, text: str, session: dict):
                 else:
                     session["state"] = "waiting_column_required"
                     redis_client.setex(f"session:{phone}", settings.SESSION_TTL, json.dumps(session))
-                    await send_message(phone, "Should this field be required? (yes/no)")
+                    await send_message(phone, "Should this be a required field? (yes / no)")
         else:
-            await send_message(phone, "Choose a number 1-8.")
+            await send_message(phone, "What type? text, number, select, date, checkbox, url or email")
 
     elif state == "waiting_column_options":
         options = [o.strip() for o in text.split(",") if o.strip()]
@@ -317,7 +331,7 @@ async def handle_session_reply(phone: str, text: str, session: dict):
         session["payload"]["column_type"] = col_type
         session["state"] = "waiting_column_required"
         redis_client.setex(f"session:{phone}", settings.SESSION_TTL, json.dumps(session))
-        await send_message(phone, "Should this field be required? (yes/no)")
+        await send_message(phone, "Should this be a required field? (yes / no)")
 
     elif state == "waiting_column_required":
         required = text.lower() in ("yes", "y", "sim", "s")
