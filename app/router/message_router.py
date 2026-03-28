@@ -142,11 +142,17 @@ _TYPE_ALIASES = {
 }
 
 _EXTRACT_SYSTEM = """Extract add-column details from the user message. Reply with JSON only.
-Fields: db (one of: tasks, projects, daily_logs, learnings, weekly_reports or null),
-        column_name (string or null),
-        column_type (one of: text, number, select, multi_select, date, checkbox, url, email, or null),
-        required (true/false/null).
-Example: {"db": "tasks", "column_name": "Owner", "column_type": "text", "required": true}
+Fields:
+  db: one of tasks, projects, daily_logs, learnings, weekly_reports — or null
+  column_name: the field/column name as a string — or null
+  column_type: one of text, number, select, multi_select, date, checkbox, url, email — or null
+  required: true if the user says "required", "mandatory", "must", "obligatory" — false if "optional" — null if not mentioned
+
+Examples:
+  "add Who column to tasks, required" → {"db":"tasks","column_name":"Who","column_type":null,"required":true}
+  "create a Priority select field on projects" → {"db":"projects","column_name":"Priority","column_type":"select","required":null}
+  "new optional text column called Notes on learnings" → {"db":"learnings","column_name":"Notes","column_type":"text","required":false}
+
 If a field is not mentioned, use null."""
 
 
@@ -185,9 +191,10 @@ async def _handle_add_column_intent(phone: str, text: str):
     db_names = ["daily_logs", "tasks", "projects", "learnings", "weekly_reports"]
     from app.whatsapp.handler import COLUMN_TYPE_MAP
 
-    # If we have everything, go straight to confirmation
+    # If we have everything, show confirmation summary
     if db and column_name and type_num:
         column_type = COLUMN_TYPE_MAP[type_num]
+        req_label = "required" if required else "optional"
         payload = {
             "chosen_db": db,
             "column_name": column_name,
@@ -195,29 +202,22 @@ async def _handle_add_column_intent(phone: str, text: str):
             "column_type_num": type_num,
             "required": bool(required),
         }
-        session = {"state": "waiting_column_required", "payload": payload, "created_at": time.time()}
+        session = {"state": "waiting_column_confirm", "payload": payload, "created_at": time.time()}
         redis_client.setex(f"session:{phone}", settings.SESSION_TTL, json.dumps(session))
-        req_label = "required" if required else "not required"
         await sender.send_message(
             phone,
-            f"Add *{column_name}* ({column_type_str or 'text'}) to *{db}*, {req_label}?\n"
-            "Reply *yes* to confirm or *no* to cancel."
+            f"Adding *{column_name}* ({column_type_str}, {req_label}) to *{db}* — confirm?"
         )
         return
 
-    # If we have db + name but no type, ask for type
+    # If we have db + name but no type, ask only for type
     if db and column_name:
         payload = {"chosen_db": db, "column_name": column_name}
         if required is not None:
             payload["required_prefill"] = bool(required)
         session = {"state": "waiting_column_type", "payload": payload, "created_at": time.time()}
         redis_client.setex(f"session:{phone}", settings.SESSION_TTL, json.dumps(session))
-        await sender.send_message(
-            phone,
-            f"What type for *{column_name}* in *{db}*?\n"
-            "1. Text  2. Number  3. Select  4. Multi-select\n"
-            "5. Date  6. Checkbox  7. URL  8. Email"
-        )
+        await sender.send_message(phone, f"What type should *{column_name}* be? text, number, select, date, checkbox, url or email")
         return
 
     # If we have name but no db, ask for db

@@ -310,15 +310,25 @@ async def handle_session_reply(phone: str, text: str, session: dict):
                 redis_client.setex(f"session:{phone}", settings.SESSION_TTL, json.dumps(session))
                 await send_message(phone, "List the options separated by commas (e.g. Done, In Progress, Backlog):")
             else:
-                # Skip required question if it was pre-filled from natural language extraction
+                col_name = session["payload"].get("column_name", "field")
+                col_db = session["payload"].get("chosen_db", "")
+                type_label = {
+                    "1": "text", "2": "number", "3": "select", "4": "multi-select",
+                    "5": "date", "6": "checkbox", "7": "url", "8": "email",
+                }.get(text, "text")
+
                 if "required_prefill" in session["payload"]:
-                    session["payload"]["required"] = session["payload"].pop("required_prefill")
-                    redis_client.delete(f"session:{phone}")
-                    await add_column_to_notion(phone, session["payload"])
+                    # Required was already specified — show confirmation summary
+                    required = session["payload"].pop("required_prefill")
+                    session["payload"]["required"] = required
+                    req_label = "required" if required else "optional"
+                    session["state"] = "waiting_column_confirm"
+                    redis_client.setex(f"session:{phone}", settings.SESSION_TTL, json.dumps(session))
+                    await send_message(phone, f"Adding *{col_name}* ({type_label}, {req_label}) to *{col_db}* — confirm?")
                 else:
                     session["state"] = "waiting_column_required"
                     redis_client.setex(f"session:{phone}", settings.SESSION_TTL, json.dumps(session))
-                    await send_message(phone, "Should this be a required field? (yes / no)")
+                    await send_message(phone, f"Should *{col_name}* be a required field?")
         else:
             await send_message(phone, "What type? text, number, select, date, checkbox, url or email")
 
@@ -334,10 +344,28 @@ async def handle_session_reply(phone: str, text: str, session: dict):
         await send_message(phone, "Should this be a required field? (yes / no)")
 
     elif state == "waiting_column_required":
-        required = text.lower() in ("yes", "y", "sim", "s")
+        required = text.lower() in ("yes", "y", "sim", "s", "true", "1")
         session["payload"]["required"] = required
-        redis_client.delete(f"session:{phone}")
-        await add_column_to_notion(phone, session["payload"])
+        col_name = session["payload"].get("column_name", "field")
+        col_db = session["payload"].get("chosen_db", "")
+        type_num = session["payload"].get("column_type_num", "1")
+        type_label = {
+            "1": "text", "2": "number", "3": "select", "4": "multi-select",
+            "5": "date", "6": "checkbox", "7": "url", "8": "email",
+        }.get(type_num, "text")
+        req_label = "required" if required else "optional"
+        session["state"] = "waiting_column_confirm"
+        redis_client.setex(f"session:{phone}", settings.SESSION_TTL, json.dumps(session))
+        await send_message(phone, f"Adding *{col_name}* ({type_label}, {req_label}) to *{col_db}* — confirm?")
+
+    elif state == "waiting_column_confirm":
+        confirmed = text.lower() in ("yes", "y", "sim", "s", "confirm", "ok", "sure", "yep", "👍")
+        if confirmed:
+            redis_client.delete(f"session:{phone}")
+            await add_column_to_notion(phone, session["payload"])
+        else:
+            redis_client.delete(f"session:{phone}")
+            await send_message(phone, "No problem, nothing changed!")
 
 
 
