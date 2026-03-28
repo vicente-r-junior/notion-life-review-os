@@ -454,29 +454,33 @@ async def handle_session_reply(phone: str, text: str, session: dict):
 
     elif state == "waiting_bulk_confirm":
         intent = await detect_confirmation_intent(text)
-        if intent == "continue":
-            await send_message(phone, "Just say confirm or cancel.")
-            return
-        redis_client.delete(f"session:{phone}")
         if intent == "confirm":
+            redis_client.delete(f"session:{phone}")
             updates = payload.get("updates", [])
             await send_message(phone, f"Updating {len(updates)} record(s)... 🗂️")
             from app.agents.notion_writer import run_notion_writer
             result = await run_notion_writer({"updates": updates, "tasks": [], "learnings": [], "project_updates": []})
             await send_message(phone, result)
-        else:
+        elif intent == "cancel":
+            redis_client.delete(f"session:{phone}")
             await send_message(phone, "No problem, nothing changed!")
+        else:
+            # User is providing additional context — route back to bulk update flow
+            redis_client.delete(f"session:{phone}")
+            from app.router.message_router import process_log
+            await process_log(phone, text)
 
     elif state == "waiting_column_confirm":
         intent = await detect_confirmation_intent(text)
-        if intent == "continue":
-            await send_message(phone, "Just say confirm or cancel.")
-            return
-        redis_client.delete(f"session:{phone}")
         if intent == "confirm":
+            redis_client.delete(f"session:{phone}")
             await add_column_to_notion(phone, session["payload"])
-        else:
+        elif intent == "cancel":
+            redis_client.delete(f"session:{phone}")
             await send_message(phone, "No problem, nothing changed!")
+        else:
+            # User is correcting something — re-extract and show updated summary
+            await _reparse_column_flow(phone, text, session)
 
 
 
