@@ -246,6 +246,11 @@ async def _advance_column_flow(phone: str, session: dict):
     db = payload.get("chosen_db")
     col_name = payload.get("column_name")
     type_num = payload.get("column_type_num")
+
+    # Promote required_prefill → required (captured earlier in the conversation)
+    if payload.get("required") is None and "required_prefill" in payload:
+        payload["required"] = payload.pop("required_prefill")
+
     required = payload.get("required")
 
     if not db:
@@ -306,6 +311,7 @@ async def _reparse_column_flow(phone: str, text: str, session: dict):
             payload["column_type_num"] = type_num
     if info.get("required") is not None:
         payload["required"] = bool(info["required"])
+        payload.pop("required_prefill", None)  # clear stale prefill if explicit value arrives
 
     session["payload"] = payload
     await _advance_column_flow(phone, session)
