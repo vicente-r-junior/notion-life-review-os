@@ -19,6 +19,12 @@ client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
 
 async def process_log(phone: str, text: str):
     try:
+        # Auto-recover schemas if Redis was flushed
+        from app.schema.schema_manager import schemas_loaded, bootstrap_schemas
+        if not schemas_loaded():
+            logger.warning("schemas_missing_auto_bootstrapping", phone=mask_phone(phone))
+            await bootstrap_schemas()
+
         # Classify intent first — query and add_column always override any active session
         from app.agents.intent_classifier import classify_intent
         intent = await classify_intent(text)
@@ -233,9 +239,13 @@ async def _execute_bulk_query_and_confirm(phone: str, table: str, field: str, va
     from app.schema.schema_manager import get_schema, DATABASE_MAP
 
     schema = get_schema(table)
+    if not schema.get("data_source_id"):
+        from app.schema.schema_manager import bootstrap_schemas
+        await bootstrap_schemas()
+        schema = get_schema(table)
     data_source_id = schema.get("data_source_id", "")
     if not data_source_id:
-        await sender.send_message(phone, f"Schema for *{table}* not loaded — try sending *refresh* first.")
+        await sender.send_message(phone, f"Couldn't load schema for *{table}*. Is Notion connected?")
         return
 
     # Build Notion filter

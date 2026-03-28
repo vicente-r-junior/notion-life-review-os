@@ -604,7 +604,11 @@ async def add_column_to_notion(phone: str, payload: dict):
 
     data_source_id = get_data_source_id(db_name)
     if not data_source_id:
-        await send_message(phone, "Could not find database schema. Try *refresh* first.")
+        from app.schema.schema_manager import bootstrap_schemas
+        await bootstrap_schemas()
+        data_source_id = get_data_source_id(db_name)
+    if not data_source_id:
+        await send_message(phone, "Couldn't load schema. Is Notion connected?")
         return
 
     try:

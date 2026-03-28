@@ -117,6 +117,11 @@ def get_schema(db_name: str) -> dict:
     return json.loads(raw)
 
 
+def schemas_loaded() -> bool:
+    """Returns True if at least the tasks schema is cached."""
+    return bool(redis_client.get("schema:tasks"))
+
+
 def get_data_source_id(db_name: str) -> str:
     return get_schema(db_name).get("data_source_id", "")
 
