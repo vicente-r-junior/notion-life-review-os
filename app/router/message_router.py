@@ -128,6 +128,8 @@ async def process_log(phone: str, text: str):
 
 
 _BULK_EXTRACT_SYSTEM = """Extract bulk update details from the user message. Reply with JSON only.
+Today's date: {today}
+
 Fields:
   table: one of tasks, projects, daily_logs, learnings, weekly_reports — or null
   field: the Notion field name to update (e.g. "Who", "Status", "Due Date") — or null
@@ -135,14 +137,16 @@ Fields:
   filter: object describing which records to update. Can include:
     - status: e.g. "Todo", "In Progress", "Done" (null = all statuses)
     - due_today: true if user says "due today" or "for today"
+    - due_date: exact date in YYYY-MM-DD if user specifies a date (e.g. "Mar 31" → "{year}-03-31", "April 2" → "{year}-04-02")
     - field_empty: field name that must be empty/blank (e.g. "Who")
     - all: true if user says "all records" with no other filter
 
 Examples:
-  "update all tasks Who to Vicente" → {"table":"tasks","field":"Who","value":"Vicente","filter":{"all":true}}
-  "set Who = me on all open tasks" → {"table":"tasks","field":"Who","value":"me","filter":{"status":"Todo"}}
-  "update all tasks due today to In Progress" → {"table":"tasks","field":"Status","value":"In Progress","filter":{"due_today":true}}
-  "fill Who for tasks where Who is empty" → {"table":"tasks","field":"Who","value":null,"filter":{"field_empty":"Who"}}
+  "update all tasks Who to Vicente" → {{"table":"tasks","field":"Who","value":"Vicente","filter":{{"all":true}}}}
+  "set Who = me on all open tasks" → {{"table":"tasks","field":"Who","value":"me","filter":{{"status":"Todo"}}}}
+  "update all tasks due today to In Progress" → {{"table":"tasks","field":"Status","value":"In Progress","filter":{{"due_today":true}}}}
+  "fill Who for tasks where Who is empty" → {{"table":"tasks","field":"Who","value":null,"filter":{{"field_empty":"Who"}}}}
+  "set Who to Lilian where due date = Mar 31" → {{"table":"tasks","field":"Who","value":"Lilian","filter":{{"due_date":"{year}-03-31"}}}}
 
 If a field is not mentioned, use null."""
 
@@ -157,10 +161,15 @@ async def _handle_bulk_update_intent(phone: str, text: str):
 
     # Step 1: extract intent
     try:
+        system = (
+            _BULK_EXTRACT_SYSTEM
+            .replace("{today}", today)
+            .replace("{year}", today[:4])
+        )
         resp = await client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": _BULK_EXTRACT_SYSTEM},
+                {"role": "system", "content": system},
                 {"role": "user", "content": text},
             ],
             temperature=0,
@@ -272,6 +281,9 @@ def _build_notion_filter(filter_info: dict, field: str, today: str) -> dict | No
 
     if filter_info.get("due_today"):
         conditions.append({"property": "Due Date", "date": {"equals": today}})
+
+    if filter_info.get("due_date"):
+        conditions.append({"property": "Due Date", "date": {"equals": filter_info["due_date"]}})
 
     if filter_info.get("status"):
         conditions.append({"property": "Status", "select": {"equals": filter_info["status"]}})
