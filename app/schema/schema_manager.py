@@ -39,7 +39,9 @@ async def bootstrap_schemas():
                 logger.info("schema_from_data_source", db=db_name)
             except Exception as primary_err:
                 logger.warning("schema_data_source_failed", db=db_name, error=str(primary_err))
-                # Fallback: use API-retrieve-a-database content
+
+            # Fallback: if primary returned no properties, try API-retrieve-a-database
+            if not schema_data.get("properties"):
                 try:
                     resp = await mcp_client.call_tool(
                         "API-retrieve-a-database", {"database_id": database_id}

@@ -48,6 +48,7 @@ _TOOLS = [
                     },
                     "sorts": {
                         "type": "array",
+                        "items": {"type": "object"},
                         "description": "Optional sort array, e.g. [{\"property\": \"Due Date\", \"direction\": \"ascending\"}]",
                     },
                 },
