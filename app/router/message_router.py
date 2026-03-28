@@ -40,6 +40,11 @@ async def process_log(phone: str, text: str):
             await sender.send_message(phone, result)
             return
 
+        if intent == "add_column":
+            logger.info("routing_to_add_column", phone=mask_phone(phone))
+            await _handle_add_column_intent(phone, text)
+            return
+
         append_history(phone, "user", text)
         history = get_history(phone)
         today = datetime.now(ZoneInfo(settings.TIMEZONE)).strftime("%Y-%m-%d")
@@ -106,6 +111,122 @@ async def process_log(phone: str, text: str):
     except Exception as e:
         logger.error("process_log_failed", error=str(e), phone=mask_phone(phone))
         await sender.send_message(phone, "Something went wrong, sorry! Try again 😅")
+
+
+_DB_ALIASES = {
+    "tasks": "tasks", "task": "tasks",
+    "projects": "projects", "project": "projects",
+    "daily logs": "daily_logs", "daily_log": "daily_logs", "daily log": "daily_logs",
+    "learnings": "learnings", "learning": "learnings",
+    "weekly reports": "weekly_reports", "weekly report": "weekly_reports",
+}
+
+_TYPE_ALIASES = {
+    "text": "1", "rich text": "1", "string": "1",
+    "number": "2", "numeric": "2",
+    "select": "3", "dropdown": "3",
+    "multi select": "4", "multi-select": "4", "multiselect": "4", "tags": "4",
+    "date": "5",
+    "checkbox": "6", "bool": "6", "boolean": "6",
+    "url": "7", "link": "7",
+    "email": "8",
+}
+
+_EXTRACT_SYSTEM = """Extract add-column details from the user message. Reply with JSON only.
+Fields: db (one of: tasks, projects, daily_logs, learnings, weekly_reports or null),
+        column_name (string or null),
+        column_type (one of: text, number, select, multi_select, date, checkbox, url, email, or null),
+        required (true/false/null).
+Example: {"db": "tasks", "column_name": "Owner", "column_type": "text", "required": true}
+If a field is not mentioned, use null."""
+
+
+async def _handle_add_column_intent(phone: str, text: str):
+    # Extract what the user already told us
+    try:
+        resp = await client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": _EXTRACT_SYSTEM},
+                {"role": "user", "content": text},
+            ],
+            temperature=0,
+            max_tokens=80,
+            response_format={"type": "json_object"},
+        )
+        info = json.loads(resp.choices[0].message.content)
+    except Exception as e:
+        logger.error("add_column_extract_failed", error=str(e))
+        info = {}
+
+    db = info.get("db")
+    column_name = info.get("column_name")
+    column_type_str = (info.get("column_type") or "").lower().replace(" ", "_")
+    required = info.get("required")
+
+    # Normalize db name
+    if db:
+        db = _DB_ALIASES.get(db.lower().replace("_", " "), db)
+
+    # Normalize type to numeric key used by session flow
+    type_num = None
+    if column_type_str:
+        type_num = _TYPE_ALIASES.get(column_type_str.replace("_", " "))
+
+    db_names = ["daily_logs", "tasks", "projects", "learnings", "weekly_reports"]
+    from app.whatsapp.handler import COLUMN_TYPE_MAP
+
+    # If we have everything, go straight to confirmation
+    if db and column_name and type_num:
+        column_type = COLUMN_TYPE_MAP[type_num]
+        payload = {
+            "chosen_db": db,
+            "column_name": column_name,
+            "column_type": column_type,
+            "column_type_num": type_num,
+            "required": bool(required),
+        }
+        session = {"state": "waiting_column_required", "payload": payload, "created_at": time.time()}
+        redis_client.setex(f"session:{phone}", settings.SESSION_TTL, json.dumps(session))
+        req_label = "required" if required else "not required"
+        await sender.send_message(
+            phone,
+            f"Add *{column_name}* ({column_type_str or 'text'}) to *{db}*, {req_label}?\n"
+            "Reply *yes* to confirm or *no* to cancel."
+        )
+        return
+
+    # If we have db + name but no type, ask for type
+    if db and column_name:
+        payload = {"chosen_db": db, "column_name": column_name}
+        if required is not None:
+            payload["required_prefill"] = bool(required)
+        session = {"state": "waiting_column_type", "payload": payload, "created_at": time.time()}
+        redis_client.setex(f"session:{phone}", settings.SESSION_TTL, json.dumps(session))
+        await sender.send_message(
+            phone,
+            f"What type for *{column_name}* in *{db}*?\n"
+            "1. Text  2. Number  3. Select  4. Multi-select\n"
+            "5. Date  6. Checkbox  7. URL  8. Email"
+        )
+        return
+
+    # If we have name but no db, ask for db
+    if column_name:
+        payload = {"column_name": column_name}
+        if required is not None:
+            payload["required_prefill"] = bool(required)
+        session = {"state": "waiting_column_db", "payload": payload, "created_at": time.time()}
+        redis_client.setex(f"session:{phone}", settings.SESSION_TTL, json.dumps(session))
+        await sender.send_message(
+            phone,
+            f"Which database for *{column_name}*?\n"
+            "1. daily_logs  2. tasks  3. projects\n4. learnings  5. weekly_reports"
+        )
+        return
+
+    # Fallback: ask everything from scratch
+    await start_add_column_flow(phone)
 
 
 async def start_add_column_flow(phone: str):

@@ -284,9 +284,15 @@ async def handle_session_reply(phone: str, text: str, session: dict):
                 redis_client.setex(f"session:{phone}", settings.SESSION_TTL, json.dumps(session))
                 await send_message(phone, "List the options separated by commas (e.g. Done, In Progress, Backlog):")
             else:
-                session["state"] = "waiting_column_required"
-                redis_client.setex(f"session:{phone}", settings.SESSION_TTL, json.dumps(session))
-                await send_message(phone, "Should this field be required? (yes/no)")
+                # Skip required question if it was pre-filled from natural language extraction
+                if "required_prefill" in session["payload"]:
+                    session["payload"]["required"] = session["payload"].pop("required_prefill")
+                    redis_client.delete(f"session:{phone}")
+                    await add_column_to_notion(phone, session["payload"])
+                else:
+                    session["state"] = "waiting_column_required"
+                    redis_client.setex(f"session:{phone}", settings.SESSION_TTL, json.dumps(session))
+                    await send_message(phone, "Should this field be required? (yes/no)")
         else:
             await send_message(phone, "Choose a number 1-8.")
 
