@@ -433,7 +433,8 @@ async def handle_session_reply(phone: str, text: str, session: dict):
                     {"role": "system", "content": (
                         "Extract a list of option values from the user message. "
                         "Return JSON: {\"options\": [\"...\", \"...\"]}. "
-                        "Split on commas, 'and', 'or'. Keep each value clean and short."
+                        "Split on commas, 'and', 'or'. Expand ranges: '1 to 5' → ['1','2','3','4','5']. "
+                        "Keep each value clean and short."
                     )},
                     {"role": "user", "content": text},
                 ],

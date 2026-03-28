@@ -311,7 +311,9 @@ Fields:
   column_name: the field/column name as a string — or null
   column_type: one of text, number, select, multi_select, date, checkbox, url, email — or null
   required: true if the user says "required", "mandatory", "must", "obligatory" — false if "optional" — null if not mentioned
-  options: list of strings if user mentions values/options for a select/multi_select field — or null
+  options: list of strings if user mentions values/options for a select/multi_select field — or null.
+    Expand ranges: "1 to 5" → ["1","2","3","4","5"], "1-3" → ["1","2","3"].
+    Split on commas and "and"/"or": "Vicente and Lilian" → ["Vicente","Lilian"].
 
 Examples:
   "add Who column to tasks, required" → {"db":"tasks","column_name":"Who","column_type":null,"required":true,"options":null}
@@ -319,6 +321,8 @@ Examples:
   "new optional text column called Notes on learnings" → {"db":"learnings","column_name":"Notes","column_type":"text","required":false,"options":null}
   "select field Status with options Todo, In Progress, Done" → {"db":null,"column_name":"Status","column_type":"select","required":null,"options":["Todo","In Progress","Done"]}
   "should be a select, values 1, 2, 5" → {"db":null,"column_name":null,"column_type":"select","required":null,"options":["1","2","5"]}
+  "select field, options numbers 1 to 5" → {"db":null,"column_name":null,"column_type":"select","required":null,"options":["1","2","3","4","5"]}
+  "select, Vicente and Lilian" → {"db":null,"column_name":null,"column_type":"select","required":null,"options":["Vicente","Lilian"]}
 
 If a field is not mentioned, use null."""
 
