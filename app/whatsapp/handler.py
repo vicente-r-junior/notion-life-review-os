@@ -220,6 +220,96 @@ async def detect_confirmation_intent(text: str) -> str:
 
 _CANCEL_WORDS = {"cancel", "exit", "stop", "ignore", "abort", "quit", "nevermind", "never mind", "forget it", "no thanks", "nope"}
 
+_TYPE_LABEL = {"1": "text", "2": "number", "3": "select", "4": "multi-select", "5": "date", "6": "checkbox", "7": "url", "8": "email"}
+_TEXT_TO_NUM = {
+    "text": "1", "rich text": "1", "string": "1",
+    "number": "2", "numeric": "2",
+    "select": "3", "dropdown": "3",
+    "multi select": "4", "multi-select": "4", "multiselect": "4",
+    "date": "5",
+    "checkbox": "6", "bool": "6", "boolean": "6",
+    "url": "7", "link": "7",
+    "email": "8",
+}
+_DB_ALIAS_MAP = {
+    "daily logs": "daily_logs", "daily log": "daily_logs",
+    "tasks": "tasks", "task": "tasks",
+    "projects": "projects", "project": "projects",
+    "learnings": "learnings", "learning": "learnings",
+    "weekly reports": "weekly_reports", "weekly report": "weekly_reports",
+}
+
+
+async def _advance_column_flow(phone: str, session: dict):
+    """Determine what's still missing and ask for it, or show confirmation summary."""
+    payload = session["payload"]
+    db = payload.get("chosen_db")
+    col_name = payload.get("column_name")
+    type_num = payload.get("column_type_num")
+    required = payload.get("required")
+
+    if not db:
+        session["state"] = "waiting_column_db"
+        redis_client.setex(f"session:{phone}", settings.SESSION_TTL, json.dumps(session))
+        await send_message(phone, "Which database — tasks, projects, daily logs, learnings, or weekly reports?")
+    elif not col_name:
+        session["state"] = "waiting_column_name"
+        redis_client.setex(f"session:{phone}", settings.SESSION_TTL, json.dumps(session))
+        await send_message(phone, "What should the new column be called?")
+    elif not type_num:
+        session["state"] = "waiting_column_type"
+        redis_client.setex(f"session:{phone}", settings.SESSION_TTL, json.dumps(session))
+        await send_message(phone, f"What type should *{col_name}* be? text, number, select, date, checkbox, url or email")
+    elif required is None:
+        session["state"] = "waiting_column_required"
+        redis_client.setex(f"session:{phone}", settings.SESSION_TTL, json.dumps(session))
+        await send_message(phone, f"Should *{col_name}* be a required field?")
+    else:
+        type_label = _TYPE_LABEL.get(type_num, "text")
+        req_label = "required" if required else "optional"
+        session["state"] = "waiting_column_confirm"
+        redis_client.setex(f"session:{phone}", settings.SESSION_TTL, json.dumps(session))
+        await send_message(phone, f"Adding *{col_name}* ({type_label}, {req_label}) to *{db}* — confirm?")
+
+
+async def _reparse_column_flow(phone: str, text: str, session: dict):
+    """Re-extract add_column fields from message, merge with session, and advance."""
+    from app.router.message_router import _EXTRACT_SYSTEM
+    llm = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+    try:
+        resp = await llm.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": _EXTRACT_SYSTEM},
+                {"role": "user", "content": text},
+            ],
+            temperature=0,
+            max_tokens=80,
+            response_format={"type": "json_object"},
+        )
+        info = json.loads(resp.choices[0].message.content)
+    except Exception:
+        info = {}
+
+    payload = session.get("payload", {})
+
+    if info.get("db"):
+        normalized = info["db"].lower().replace("_", " ")
+        payload["chosen_db"] = _DB_ALIAS_MAP.get(normalized, info["db"])
+    if info.get("column_name"):
+        payload["column_name"] = info["column_name"]
+    if info.get("column_type"):
+        col_type_str = info["column_type"].lower().replace("_", " ")
+        type_num = _TEXT_TO_NUM.get(col_type_str)
+        if type_num:
+            payload["column_type"] = COLUMN_TYPE_MAP[type_num]
+            payload["column_type_num"] = type_num
+    if info.get("required") is not None:
+        payload["required"] = bool(info["required"])
+
+    session["payload"] = payload
+    await _advance_column_flow(phone, session)
+
 
 async def handle_session_reply(phone: str, text: str, session: dict):
     state = session.get("state")
@@ -276,15 +366,8 @@ async def handle_session_reply(phone: str, text: str, session: dict):
 
     elif state == "waiting_column_db":
         db_names = ["daily_logs", "tasks", "projects", "learnings", "weekly_reports"]
-        _db_alias = {
-            "daily logs": "daily_logs", "daily log": "daily_logs",
-            "tasks": "tasks", "task": "tasks",
-            "projects": "projects", "project": "projects",
-            "learnings": "learnings", "learning": "learnings",
-            "weekly reports": "weekly_reports", "weekly report": "weekly_reports",
-        }
         normalized = text.strip().lower()
-        chosen = _db_alias.get(normalized)
+        chosen = _DB_ALIAS_MAP.get(normalized)
         if not chosen:
             try:
                 idx = int(normalized) - 1
@@ -297,43 +380,27 @@ async def handle_session_reply(phone: str, text: str, session: dict):
             redis_client.setex(f"session:{phone}", settings.SESSION_TTL, json.dumps(session))
             await send_message(phone, "What should the new column be called?")
         else:
-            await send_message(phone, "Which one — tasks, projects, daily logs, learnings, or weekly reports?")
+            await _reparse_column_flow(phone, text, session)
 
     elif state == "waiting_column_name":
-        session["payload"]["column_name"] = text
-        session["state"] = "waiting_column_type"
-        redis_client.setex(f"session:{phone}", settings.SESSION_TTL, json.dumps(session))
-        await send_message(phone, "What type? text, number, select, date, checkbox, url or email")
+        # Re-extract in case user is correcting or providing more context
+        await _reparse_column_flow(phone, text, session)
 
     elif state == "waiting_column_type":
-        _TEXT_TO_NUM = {
-            "text": "1", "rich text": "1", "string": "1",
-            "number": "2", "numeric": "2",
-            "select": "3", "dropdown": "3",
-            "multi select": "4", "multi-select": "4", "multiselect": "4",
-            "date": "5",
-            "checkbox": "6", "bool": "6", "boolean": "6",
-            "url": "7", "link": "7",
-            "email": "8",
-        }
-        text = _TEXT_TO_NUM.get(text.lower().strip(), text.strip())
-        if text in COLUMN_TYPE_MAP:
-            session["payload"]["column_type"] = COLUMN_TYPE_MAP[text]
-            session["payload"]["column_type_num"] = text
-            if text in ("3", "4"):
+        type_num = _TEXT_TO_NUM.get(text.lower().strip(), text.strip())
+        if type_num in COLUMN_TYPE_MAP:
+            session["payload"]["column_type"] = COLUMN_TYPE_MAP[type_num]
+            session["payload"]["column_type_num"] = type_num
+            if type_num in ("3", "4"):
                 session["state"] = "waiting_column_options"
                 redis_client.setex(f"session:{phone}", settings.SESSION_TTL, json.dumps(session))
                 await send_message(phone, "List the options separated by commas (e.g. Done, In Progress, Backlog):")
             else:
                 col_name = session["payload"].get("column_name", "field")
                 col_db = session["payload"].get("chosen_db", "")
-                type_label = {
-                    "1": "text", "2": "number", "3": "select", "4": "multi-select",
-                    "5": "date", "6": "checkbox", "7": "url", "8": "email",
-                }.get(text, "text")
+                type_label = _TYPE_LABEL.get(type_num, "text")
 
                 if "required_prefill" in session["payload"]:
-                    # Required was already specified — show confirmation summary
                     required = session["payload"].pop("required_prefill")
                     session["payload"]["required"] = required
                     req_label = "required" if required else "optional"
@@ -345,7 +412,7 @@ async def handle_session_reply(phone: str, text: str, session: dict):
                     redis_client.setex(f"session:{phone}", settings.SESSION_TTL, json.dumps(session))
                     await send_message(phone, f"Should *{col_name}* be a required field?")
         else:
-            await send_message(phone, "What type? text, number, select, date, checkbox, url or email")
+            await _reparse_column_flow(phone, text, session)
 
     elif state == "waiting_column_options":
         options = [o.strip() for o in text.split(",") if o.strip()]
