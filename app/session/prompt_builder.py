@@ -36,32 +36,42 @@ def _build_schema_context(schemas: dict) -> tuple[str, str, str]:
         "weekly_reports": "Weekly Reports",
     }
 
-    # Fields that are always handled natively — skip from dynamic schema
-    _NATIVE_TASK_FIELDS = {"name", "status", "project", "due date", "daily log"}
-    _NATIVE_FIELDS = {"name"}
+    # Fields always handled natively by notion_writer — exclude from schema_context
+    # so the LLM doesn't confuse them with custom fields
+    _NATIVE_DB_FIELDS = {
+        "tasks":        {"name", "status", "project", "due date", "daily log"},
+        "daily_logs":   {"name", "date", "mood", "energy", "summary", "tags"},
+        "projects":     {"name", "status", "progress note", "last mentioned"},
+        "learnings":    {"name", "insight", "area", "date", "daily log"},
+        "weekly_reports": {"name", "date", "summary", "tags"},
+    }
 
     for db_name, schema in schemas.items():
         fields = schema.get("fields", {})
         if not fields:
             continue
 
+        native = _NATIVE_DB_FIELDS.get(db_name, {"name"})
         label = db_labels.get(db_name, db_name)
         field_parts = []
         for field_name, meta in fields.items():
+            if field_name.lower() in native:
+                continue  # skip native fields — already known by the agent
             ftype = meta.get("type", "text")
             req = meta.get("required", False)
             marker = " *(required)*" if req else ""
             field_parts.append(f"{field_name} ({ftype}){marker}")
 
             # Collect required non-native fields per db
-            if req and field_name.lower() not in _NATIVE_FIELDS:
+            if req:
                 required_lines.append(f"- {label} → **{field_name}** ({ftype})")
 
-            # Collect extra required fields for tasks (beyond native ones)
-            if db_name == "tasks" and req and field_name.lower() not in _NATIVE_TASK_FIELDS:
+            # Collect extra required fields for tasks
+            if db_name == "tasks" and req:
                 task_extra.append(field_name)
 
-        schema_lines.append(f"**{label}**: {', '.join(field_parts)}")
+        if field_parts:
+            schema_lines.append(f"**{label}**: {', '.join(field_parts)}")
 
     schema_context = "\n".join(schema_lines) if schema_lines else "_(schema not loaded yet)_"
 
