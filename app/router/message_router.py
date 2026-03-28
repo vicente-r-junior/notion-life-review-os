@@ -323,6 +323,9 @@ Examples:
   "should be a select, values 1, 2, 5" → {"db":null,"column_name":null,"column_type":"select","required":null,"options":["1","2","5"]}
   "select field, options numbers 1 to 5" → {"db":null,"column_name":null,"column_type":"select","required":null,"options":["1","2","3","4","5"]}
   "select, Vicente and Lilian" → {"db":null,"column_name":null,"column_type":"select","required":null,"options":["Vicente","Lilian"]}
+  "sorry, the name is Who, W-H-O" → {"db":null,"column_name":"Who","column_type":null,"required":null,"options":null}
+  "o nome da coluna é Who" → {"db":null,"column_name":"Who","column_type":null,"required":null,"options":null}
+  "actually call it Priority" → {"db":null,"column_name":"Priority","column_type":null,"required":null,"options":null}
 
 If a field is not mentioned, use null."""
 
@@ -364,7 +367,12 @@ async def _handle_add_column_intent(phone: str, text: str):
 
     # If we have everything, show confirmation summary
     if db and column_name and type_num:
-        column_type = COLUMN_TYPE_MAP[type_num]
+        column_type = dict(COLUMN_TYPE_MAP[type_num])
+        # Embed options if already provided (e.g. select with Vicente and Lilian)
+        options = info.get("options")
+        if options and type_num in ("3", "4"):
+            type_key = "select" if type_num == "3" else "multi_select"
+            column_type[type_key] = {"options": [{"name": str(o)} for o in options]}
         req_label = "required" if required else "optional"
         payload = {
             "chosen_db": db,
