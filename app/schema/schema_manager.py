@@ -47,6 +47,7 @@ async def bootstrap_schemas():
                         "API-retrieve-a-database", {"database_id": database_id}
                     )
                     raw = resp.get("content", [{}])[0].get("text", "{}")
+                    logger.info("schema_raw_preview", db=db_name, raw=raw[:300])
                     schema_data = json.loads(raw)
                     logger.info("schema_from_database", db=db_name)
                 except Exception as fallback_err:
