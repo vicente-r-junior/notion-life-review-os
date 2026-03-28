@@ -17,7 +17,6 @@ COMMANDS = {
     "*help*": "handle_help",
     "*status*": "handle_status",
     "*week*": "handle_week",
-    "*undo*": "handle_undo",
     "*pause*": "handle_pause",
     "*resume*": "handle_resume",
     "*refresh*": "handle_refresh",
@@ -523,7 +522,6 @@ async def dispatch_command(handler_name: str, phone: str):
         "handle_help": handle_help_cmd,
         "handle_status": handle_status_cmd,
         "handle_week": handle_week_cmd,
-        "handle_undo": handle_undo_cmd,
         "handle_pause": handle_pause_cmd,
         "handle_resume": handle_resume_cmd,
         "handle_refresh": handle_refresh_cmd,
@@ -539,7 +537,6 @@ async def handle_help_cmd(phone: str):
         "*help* - show this message\n"
         "*status* - check service health\n"
         "*week* - generate weekly report now\n"
-        "*undo* - delete last entry\n"
         "*pause* - pause the bot for 24h\n"
         "*resume* - resume the bot\n"
         "*refresh* - refresh Notion schema cache\n\n"
