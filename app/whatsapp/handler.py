@@ -276,6 +276,18 @@ async def handle_session_reply(phone: str, text: str, session: dict):
         await send_message(phone, msg)
 
     elif state == "waiting_column_type":
+        # Accept text labels in addition to numbers
+        _TEXT_TO_NUM = {
+            "text": "1", "rich text": "1", "string": "1",
+            "number": "2", "numeric": "2",
+            "select": "3", "dropdown": "3",
+            "multi select": "4", "multi-select": "4", "multiselect": "4",
+            "date": "5",
+            "checkbox": "6", "bool": "6", "boolean": "6",
+            "url": "7", "link": "7",
+            "email": "8",
+        }
+        text = _TEXT_TO_NUM.get(text.lower().strip(), text.strip())
         if text in COLUMN_TYPE_MAP:
             session["payload"]["column_type"] = COLUMN_TYPE_MAP[text]
             session["payload"]["column_type_num"] = text
