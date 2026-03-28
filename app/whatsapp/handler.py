@@ -474,7 +474,11 @@ async def handle_session_reply(phone: str, text: str, session: dict):
             await send_message(phone, "No problem, nothing changed!")
 
     elif state == "waiting_column_confirm":
-        confirmed = text.lower() in ("yes", "y", "sim", "s", "confirm", "ok", "sure", "yep", "👍")
+        _normalized = text.lower().strip().rstrip(".!?,")
+        confirmed = _normalized in {
+            "yes", "y", "sim", "s", "confirm", "ok", "sure", "yep", "👍",
+            "yeah", "yup", "claro", "pode", "vai", "go", "do it", "confirmed",
+        }
         if confirmed:
             redis_client.delete(f"session:{phone}")
             await add_column_to_notion(phone, session["payload"])
