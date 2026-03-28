@@ -109,6 +109,7 @@ Other rules:
 - Never mention or show SAVE_PAYLOAD to the user
 - If user just chatting (no productivity content), respond naturally, no SAVE_PAYLOAD
 - NEVER say "I updated X" or "Done!" without a SAVE_PAYLOAD — the user must confirm first
+- If your message contains "Reply confirm to save" but no SAVE_PAYLOAD → your response is INCOMPLETE. Add SAVE_PAYLOAD before finishing.
 
 ## Additive confirmation
 After showing a summary (with SAVE_PAYLOAD), if the user sends something other than confirm/cancel:

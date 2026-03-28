@@ -106,6 +106,41 @@ async def process_log(phone: str, text: str):
                 msg_to_send = user_message if user_message else reply
                 append_history(phone, "assistant", msg_to_send)
                 await sender.send_message(phone, msg_to_send)
+        elif "confirm" in reply.lower() and "save" in reply.lower():
+            # LLM showed a summary and asked to confirm but forgot SAVE_PAYLOAD.
+            # Re-prompt once to recover the payload.
+            logger.warning("save_payload_missing_retrying", phone=mask_phone(phone))
+            messages.append({"role": "assistant", "content": reply})
+            messages.append({"role": "user", "content": "SYSTEM: Your last message asked the user to confirm but is missing SAVE_PAYLOAD. Resend the same summary with SAVE_PAYLOAD included."})
+            retry = await client.chat.completions.create(
+                model=settings.OPENAI_MODEL,
+                messages=messages,
+                temperature=0,
+            )
+            retry_reply = retry.choices[0].message.content.strip()
+            if "SAVE_PAYLOAD:" in retry_reply:
+                parts = retry_reply.split("SAVE_PAYLOAD:", 1)
+                user_message = parts[0].strip()
+                payload_raw = parts[1].strip()
+                try:
+                    decoder = json.JSONDecoder()
+                    payload, _ = decoder.raw_decode(payload_raw)
+                    session = {
+                        "state": "waiting_confirmation",
+                        "payload": payload,
+                        "created_at": time.time(),
+                    }
+                    redis_client.setex(f"session:{phone}", settings.SESSION_TTL, json.dumps(session))
+                    logger.info("session_created_after_retry", phone=mask_phone(phone))
+                    append_history(phone, "assistant", user_message)
+                    await sender.send_message(phone, user_message)
+                except Exception as e:
+                    logger.error("save_payload_retry_parse_failed", error=str(e))
+                    append_history(phone, "assistant", reply)
+                    await sender.send_message(phone, reply)
+            else:
+                append_history(phone, "assistant", reply)
+                await sender.send_message(phone, reply)
         else:
             append_history(phone, "assistant", reply)
             await sender.send_message(phone, reply)
