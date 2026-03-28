@@ -47,9 +47,8 @@ async def bootstrap_schemas():
                         "API-retrieve-a-database", {"database_id": database_id}
                     )
                     raw = resp.get("content", [{}])[0].get("text", "{}")
-                    logger.info("schema_raw_preview", db=db_name, raw=raw[:300])
                     schema_data = json.loads(raw)
-                    logger.info("schema_from_database", db=db_name)
+                    logger.info("schema_from_database", db=db_name, keys=list(schema_data.keys()), prop_count=len(schema_data.get("properties", {})))
                 except Exception as fallback_err:
                     logger.error("schema_fallback_failed", db=db_name, error=str(fallback_err))
 
